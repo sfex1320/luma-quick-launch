@@ -1,13 +1,15 @@
 import { z } from 'zod';
 
 export const ColorSchema = z.enum(['mint', 'blue', 'violet', 'peach', 'gold']);
-export const ItemSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder', 'file', 'app']) });
+export const LaunchCommandSchema = z.object({ command: z.string().min(1).max(1000).refine(value => value.trim().length > 0 && !/[\r\n\0]/.test(value), '请输入非空的单行 CMD 命令'), workingDirectory: z.string().min(1).max(4096).refine(value => !/[\r\n\0]/.test(value) && /^(?:[a-zA-Z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(value), '请输入有效的绝对工作目录') });
+export const ItemSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder', 'file', 'app']), launch: LaunchCommandSchema.optional() });
 export const ProjectSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(60), description: z.string().max(160), color: ColorSchema, pinned: z.boolean(), items: z.array(ItemSchema).min(1).max(200) });
 export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean() });
 export const StateSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), projects: z.array(ProjectSchema).max(100), preferences: PreferencesSchema }).superRefine((state, ctx) => {
   const ids = state.projects.map(p => p.id);
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', message: 'Duplicate project ID' });
   for (const p of state.projects) if (new Set(p.items.map(i => i.id)).size !== p.items.length) ctx.addIssue({ code: 'custom', message: 'Duplicate item ID' });
+  for (const p of state.projects) for (const item of p.items) if (item.launch && item.kind !== 'folder') ctx.addIssue({ code: 'custom', message: '启动命令只能绑定文件夹' });
 });
 export type AppState = z.infer<typeof StateSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
@@ -50,6 +52,7 @@ export interface Methods {
   'shell.resolveDrop': { params: Record<string, never>; result: ImportedShortcut[] };
   'folder.list': { params: { projectId: string; itemId: string; folderId?: string }; result: FolderListing };
   'folder.open': { params: { projectId: string; itemId: string; entryId: string }; result: { accepted: boolean } };
+  'folder.getThumbnail': { params: { projectId: string; itemId: string; entryId: string; size?: 64 | 96 | 128 }; result: z.infer<typeof IconResponseSchema> };
   'project.detectTest': { params: { projectId: string; itemId: string; folderId: string }; result: { task: ProjectTestTask | null } };
   'project.runTest': { params: { projectId: string; itemId: string; taskId: string }; result: { opened: boolean } };
   'search.query': { params: { query: string; scope: SearchScope }; result: z.infer<typeof SearchResponseSchema> };
@@ -73,6 +76,7 @@ export const resultSchemas = {
   'shell.resolveDrop': z.array(ImportedShortcutSchema).max(100),
   'folder.list': FolderListingSchema,
   'folder.open': z.object({ accepted: z.boolean() }),
+  'folder.getThumbnail': IconResponseSchema,
   'project.detectTest': z.object({ task: ProjectTestTaskSchema.nullable() }),
   'project.runTest': z.object({ opened: z.boolean() }),
   'search.query': SearchResponseSchema,

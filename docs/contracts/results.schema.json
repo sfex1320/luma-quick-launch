@@ -135,6 +135,26 @@
                       "file",
                       "app"
                     ]
+                  },
+                  "launch": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      "workingDirectory": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "required": [
+                      "command",
+                      "workingDirectory"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -297,6 +317,26 @@
                       "file",
                       "app"
                     ]
+                  },
+                  "launch": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      "workingDirectory": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "required": [
+                      "command",
+                      "workingDirectory"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -470,6 +510,26 @@
             "file",
             "app"
           ]
+        },
+        "launch": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "workingDirectory": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "command",
+            "workingDirectory"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -504,6 +564,26 @@
             "file",
             "app"
           ]
+        },
+        "launch": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "workingDirectory": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "command",
+            "workingDirectory"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -584,6 +664,83 @@
     },
     "required": [
       "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "folder.getThumbnail": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "dataUrl": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 350000
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "dataUrl"
+    ],
+    "additionalProperties": false
+  },
+  "project.detectTest": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "task": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "command"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "task"
+    ],
+    "additionalProperties": false
+  },
+  "project.runTest": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "opened": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "opened"
     ],
     "additionalProperties": false
   },

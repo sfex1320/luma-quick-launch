@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { StateSchema, HostEventSchema, resultSchemas } from './contracts';
+import { StateSchema, HostEventSchema, resultSchemas, LaunchCommandSchema } from './contracts';
 import { initialState } from './data';
 describe('boundary validation', () => {
+  it('preserves literal manual commands and validates working-directory controls', () => {
+    const launch = { command: 'echo hello ', workingDirectory: 'C:\\Projects\\Repo' };
+    expect(LaunchCommandSchema.parse(launch)).toEqual(launch);
+    for (const command of ['', ' ', 'echo ok\nexit', 'x'.repeat(1001)]) expect(LaunchCommandSchema.safeParse({ ...launch, command }).success).toBe(false);
+    for (const workingDirectory of ['relative', 'C:\\repo\nother', 'C:\\repo\0other']) expect(LaunchCommandSchema.safeParse({ ...launch, workingDirectory }).success).toBe(false);
+  });
   it('rejects duplicate project identities', () => {
     const state = structuredClone(initialState); state.projects.push(state.projects[0]);
     expect(StateSchema.safeParse(state).success).toBe(false);

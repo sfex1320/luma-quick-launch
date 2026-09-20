@@ -103,10 +103,11 @@ public sealed class BridgeRouter
     private readonly FolderService _folders;
     private readonly ProjectTestService _projectTests;
     private readonly ShellIconService _icons;
+    private readonly FolderThumbnailService _thumbnails;
     private readonly ShortcutImportService _imports = new();
     private readonly SystemIntegrationService _integration;
 
-    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null)
+    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null, FolderThumbnailService? thumbnails = null)
     {
         _store = store;
         _launcher = launcher;
@@ -117,6 +118,7 @@ public sealed class BridgeRouter
         _folders = folders ?? new FolderService(store);
         _projectTests = projectTests ?? new ProjectTestService(_folders);
         _icons = icons ?? new ShellIconService(store);
+        _thumbnails = thumbnails ?? new FolderThumbnailService(_folders);
         _integration = integration ?? new SystemIntegrationService();
     }
 
@@ -191,6 +193,9 @@ public sealed class BridgeRouter
                     return;
                 case "shell.getIcon":
                     await HandleGetIcon(source, id, parameters);
+                    return;
+                case "folder.getThumbnail":
+                    await HandleGetThumbnail(source, id, parameters);
                     return;
                 case "folder.list":
                 case "folder.open":
@@ -313,6 +318,22 @@ public sealed class BridgeRouter
         if (parameters.TryGetProperty("size", out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out size) || size is not (32 or 48 or 64 or 96)))
         { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
         RespondOk(source, id, new { dataUrl = await _icons.GetAsync(project.GetString()!, item.GetString()!, size) });
+    }
+
+    private async Task HandleGetThumbnail(IHostClient source, string id, JsonElement parameters)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object ||
+            parameters.EnumerateObject().Any(p => p.Name is not ("projectId" or "itemId" or "entryId" or "size")) ||
+            parameters.EnumerateObject().Select(p => p.Name).Distinct().Count() != parameters.EnumerateObject().Count() ||
+            !parameters.TryGetProperty("projectId", out var project) || project.ValueKind != JsonValueKind.String ||
+            !parameters.TryGetProperty("itemId", out var item) || item.ValueKind != JsonValueKind.String ||
+            !parameters.TryGetProperty("entryId", out var entry) || entry.ValueKind != JsonValueKind.String)
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        var size = 64;
+        if (parameters.TryGetProperty("size", out var value) &&
+            (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out size) || size is not (64 or 96 or 128)))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        RespondOk(source, id, new { dataUrl = await _thumbnails.GetAsync(source.ClientId, project.GetString()!, item.GetString()!, entry.GetString()!, size) });
     }
 
     private async Task HandleFolder(IHostClient source, string id, string method, JsonElement parameters)

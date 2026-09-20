@@ -109,6 +109,44 @@ public sealed class FolderService
         return capability.Path;
     }
 
+    // Thumbnail workers call this outside their cache lock. Capabilities never expose paths to the page.
+    internal string ResolveThumbnailEntry(string client, string project, string item, string entryId)
+    {
+        ValidateIds(client, project, item, entryId);
+        var root = ResolveRoot(project, item);
+        var capability = ResolveToken(client, project, item, root, entryId);
+        if (capability.Directory) throw Invalid("缩略图仅支持文件。");
+        var path = capability.Path;
+        // This is an already-issued file capability, never a command. Shell keywords
+        // and ampersands are ordinary filename characters here.
+        if (!Path.IsPathFullyQualified(path) || path.IndexOf('\0') >= 0 || path.StartsWith(@"\\?\") || path.StartsWith(@"\\.\") ||
+            !SamePath(Path.GetFullPath(path), path) || path[Path.GetPathRoot(path)!.Length..].Contains(':'))
+            throw Invalid("文件路径无效。");
+        if (Path.GetExtension(path).ToLowerInvariant() is ".lnk" or ".url" or ".website")
+            throw new FolderOperationException(ProtocolErrors.AccessDenied, "链接不提供内容缩略图。");
+        ValidatePath(root, path, false);
+        if ((_files.GetAttributes(path) & FileAttributes.Device) != 0)
+            throw new FolderOperationException(ProtocolErrors.AccessDenied, "设备不提供内容缩略图。");
+        EnsureRootUnchanged(project, item, root);
+        // A detach during slow file validation must also invalidate this read.
+        ResolveToken(client, project, item, root, entryId);
+        return path;
+    }
+
+    // Immutable saved configuration accompanies the existing directory capability. Child folders never inherit a root command.
+    internal (string Directory, LaunchConfiguration? Launch) ResolveProjectTestContext(string client, string project, string item, string folderId)
+    {
+        var directory = ResolveTestDirectory(client, project, item, folderId);
+        var root = ResolveRoot(project, item);
+        var saved = _store.Current.Projects.FirstOrDefault(p => p.Id == project)?.Items.FirstOrDefault(i => i.Id == item);
+        if (saved is null || !SamePath(Path.TrimEndingDirectorySeparator(Path.GetFullPath(saved.Path)), root))
+            throw Invalid("目录入口已变更，请重新展开。");
+        var launch = SamePath(directory, root) ? saved.Launch : null;
+        if (!SamePath(directory, ResolveTestDirectory(client, project, item, folderId)))
+            throw Invalid("目录入口已变更，请重新展开。");
+        return (directory, launch);
+    }
+
     private FolderListing List(string client, string project, string item, string? folderId, CancellationToken cancellation)
     {
         var root = ResolveRoot(project, item);

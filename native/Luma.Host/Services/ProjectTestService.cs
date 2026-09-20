@@ -11,7 +11,7 @@ using Luma.Host.Bridge;
 namespace Luma.Host.Services;
 
 public sealed record ProjectTestTask(string Id, string Label, string Command);
-public sealed record ProjectTestCommand(string Directory, string Tool, string[] Arguments);
+public sealed record ProjectTestCommand(string Directory, string Tool, string[] Arguments, string? ManualCommand = null);
 public interface IProjectTestProcess : IDisposable { bool HasExited { get; } }
 public interface IProjectTestTerminal { IProjectTestProcess Start(ProjectTestCommand command, CancellationToken cancellation); }
 public interface IProjectTestFiles
@@ -58,7 +58,7 @@ public sealed class RealProjectTestFiles : IProjectTestFiles
 /// <summary>Explicit-click capability execution; no scanning, command execution or installation during detection.</summary>
 public sealed class ProjectTestService
 {
-    private sealed record Detection(string Tool, string[] Arguments, string Display, string Fingerprint);
+    private sealed record Detection(string Tool, string[] Arguments, string Display, string Fingerprint, LaunchConfiguration? Launch = null);
     private sealed record Capability(string Client, string Project, string Item, string Folder, string Directory, Detection Detection, DateTimeOffset Expires);
     private static readonly SemaphoreSlim Workers = new(2, 2);
     private readonly object _gate = new();
@@ -79,9 +79,11 @@ public sealed class ProjectTestService
     }
     public Task<ProjectTestTask?> DetectAsync(string client, string project, string item, string folder) => Bounded(cancel =>
     {
-        var directory = _folders.ResolveTestDirectory(client, project, item, folder);
-        var detection = Detect(directory, cancel);
-        _folders.ResolveTestDirectory(client, project, item, folder);
+        var context = _folders.ResolveProjectTestContext(client, project, item, folder);
+        var directory = context.Directory;
+        var detection = Detect(context, cancel);
+        if (context != _folders.ResolveProjectTestContext(client, project, item, folder))
+            throw Invalid("启动配置已变更，请重新展开目录。");
         cancel.ThrowIfCancellationRequested();
         if (detection is null) return null;
         lock (_gate)
@@ -94,7 +96,7 @@ public sealed class ProjectTestService
                 while (_tokens.Count >= 128) _tokens.Remove(_tokens.First().Key);
                 _tokens[id] = new(client, project, item, folder, directory, detection, _clock().AddMinutes(2));
             }
-            return new ProjectTestTask(id, "运行测试", detection.Display);
+            return new ProjectTestTask(id, detection.Launch is null ? "运行测试" : "手动启动", detection.Display);
         }
     });
 
@@ -107,11 +109,12 @@ public sealed class ProjectTestService
             if (!_tokens.TryGetValue(taskId, out cap!) || cap.Client != client || cap.Project != project || cap.Item != item)
                 throw Invalid("测试入口已过期或不匹配，请重新展开目录。");
         }
-        var directory = _folders.ResolveTestDirectory(client, project, item, cap.Folder);
-        var current = Detect(directory, cancel);
-        if (!string.Equals(directory, cap.Directory, StringComparison.OrdinalIgnoreCase) || current?.Fingerprint != cap.Detection.Fingerprint)
-            throw Invalid("项目清单已变更，请重新展开目录后运行测试。");
-        _folders.ResolveTestDirectory(client, project, item, cap.Folder);
+        var context = _folders.ResolveProjectTestContext(client, project, item, cap.Folder);
+        var current = Detect(context, cancel);
+        if (!string.Equals(context.Directory, cap.Directory, StringComparison.OrdinalIgnoreCase) || current?.Fingerprint != cap.Detection.Fingerprint ||
+            context != _folders.ResolveProjectTestContext(client, project, item, cap.Folder))
+            throw Invalid("项目清单或启动配置已变更，请重新展开目录后运行。");
+        var directory = current!.Launch is { } launch ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(launch.WorkingDirectory)) : context.Directory;
         cancel.ThrowIfCancellationRequested();
         CancellationTokenSource startCancellation;
         lock (_gate)
@@ -130,7 +133,7 @@ public sealed class ProjectTestService
         try
         {
             // PATH probing may block on disconnected shares. It never owns the capability/UI lock.
-            var process = _terminal.Start(new(directory, current!.Tool, current.Arguments), startCancellation.Token);
+            var process = _terminal.Start(new(directory, current.Tool, current.Arguments, current.Launch?.Command), startCancellation.Token);
             lock (_gate) _active[directory] = process;
             return true;
         }
@@ -153,8 +156,15 @@ public sealed class ProjectTestService
         foreach (var id in _tokens.Where(p => p.Value.Expires <= _clock()).Select(p => p.Key).ToArray()) _tokens.Remove(id);
     }
 
-    private Detection? Detect(string directory, CancellationToken cancel)
+    private Detection? Detect((string Directory, LaunchConfiguration? Launch) context, CancellationToken cancel)
     {
+        cancel.ThrowIfCancellationRequested();
+        if (context.Launch is { } launch)
+        {
+            var fingerprint = "manual:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(launch, ContractsJson.Options))));
+            return new("cmd", [], launch.Command, fingerprint, launch);
+        }
+        var directory = context.Directory;
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         byte[]? Read(string name, int limit = 262144)
         {
@@ -244,17 +254,33 @@ public sealed class WindowsProjectTestTerminal : IProjectTestTerminal
     public IProjectTestProcess Start(ProjectTestCommand command, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
-        var tool = ResolveTool(command.Tool, command.Directory) ?? throw new FolderOperationException(ProtocolErrors.PathNotFound, $"未找到 {command.Tool}，请安装该测试工具并重新打开 Luma。");
+        var manualInfo = command.ManualCommand is null ? null : BuildStartInfo(command, "");
+        if (!Directory.Exists(command.Directory)) throw new DirectoryNotFoundException("启动工作目录已移动或删除。");
+        var tool = command.ManualCommand is null
+            ? ResolveTool(command.Tool, command.Directory) ?? throw new FolderOperationException(ProtocolErrors.PathNotFound, $"未找到 {command.Tool}，请安装该测试工具并重新打开 Luma。")
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
         cancellation.ThrowIfCancellationRequested();
         try
         {
-            return new TerminalProcess(Process.Start(BuildStartInfo(command, tool)) ?? throw new IOException("终端未启动。"));
+            return new TerminalProcess(Process.Start(manualInfo ?? BuildStartInfo(command, tool)) ?? throw new IOException("终端未启动。"));
         }
         catch (System.ComponentModel.Win32Exception)
-        { throw new FolderOperationException(ProtocolErrors.AccessDenied, "无法打开测试终端，请检查 PowerShell 与测试工具权限。"); }
+        { throw new FolderOperationException(ProtocolErrors.AccessDenied, "无法打开终端，请检查命令工具和工作目录权限。"); }
     }
     public static ProcessStartInfo BuildStartInfo(ProjectTestCommand command, string toolPath)
     {
+        if (command.ManualCommand is { } manual)
+        {
+            if (command.Directory.StartsWith(@"\\", StringComparison.Ordinal) || command.Directory.StartsWith("//", StringComparison.Ordinal))
+                throw new FolderOperationException(ProtocolErrors.InvalidRequest, "CMD 工作目录不支持 UNC 或设备路径，请使用本地目录或已映射的网络盘符。");
+            // Only the saved, explicitly user-authored CMD body reaches this branch. Cwd remains a separate process field.
+            return new ProcessStartInfo
+            {
+                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"),
+                Arguments = "/d /s /k \"" + manual + "\"",
+                WorkingDirectory = command.Directory, UseShellExecute = false, CreateNoWindow = false,
+            };
+        }
         // The command body contains only host-selected executables and literal arguments, never scripts.test.
         static string Literal(string value) => "'" + value.Replace("'", "''") + "'";
         var args = string.Join(",", command.Arguments.Select(Literal));

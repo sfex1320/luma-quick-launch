@@ -71,6 +71,26 @@
                     "file",
                     "app"
                   ]
+                },
+                "launch": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "workingDirectory": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "command",
+                    "workingDirectory"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [

@@ -14,6 +14,7 @@ public class DockMessageQueueTests
     [InlineData("folder.list")]
     [InlineData("folder.open")]
     [InlineData("shell.getIcon")]
+    [InlineData("folder.getThumbnail")]
     [InlineData("shell.openItem")]
     [InlineData("search.open")]
     [InlineData("project.detectTest")]

@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
-import { ChevronDown, Search, Settings2, MoreHorizontal, ArrowUpRight, X, FolderOpen, MousePointer2, Pencil, Check, ChevronRight } from 'lucide-react';
+import { ChevronDown, Search, Settings2, MoreHorizontal, X, Pencil, Check } from 'lucide-react';
 import type { LaunchItem, Preferences, Project } from '../contracts';
 import { computeLayout } from '../core/layout';
 import { releaseGesture } from '../core/gesture';
-import { ItemIcon } from './ItemIcon';
 import { GroupIcon } from './GroupIcon';
 import { FolderBrowser } from './FolderBrowser';
+import { SplitFolderTile } from './SplitFolderTile';
+import { GroupEntryMenu } from './GroupEntryMenu';
 import { useDockMotion } from './useDockMotion';
 import { nativeMode, request, subscribeHost } from '../bridge';
 interface Props { projects: Project[]; preferences: Preferences; onOpen: (p: Project, item: LaunchItem) => void; onSettings: () => void; onSearch: () => void; onDropFiles?: (files: File[], projectId?: string) => Promise<void>; onGroup?: (sourceId: string, targetId: string) => void; onUngroup?: (projectId: string) => void; overlay?: boolean }
@@ -27,7 +28,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
   const groupDrag = useRef<{ source: string; x: number; y: number; moved: boolean; button: HTMLButtonElement; pointer: number } | null>(null);
   const [pressing, setPressing] = useState(false), [keyboard, setKeyboard] = useState(false), [importing, setImporting] = useState(false);
   const dragLeaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const press = useRef<{ project: Project; origin: 'project' | 'entry'; long: boolean; x: number; y: number; timer: ReturnType<typeof setTimeout>; button: HTMLButtonElement; pointer: number } | null>(null);
+  const press = useRef<{ project: Project; origin: 'project' | 'entry'; long: boolean; x: number; y: number; lastX: number; lastY: number; needsMove: boolean; timer: ReturnType<typeof setTimeout>; button: HTMLButtonElement; pointer: number } | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), showTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pinned = projects.filter(project => project.pinned);
   const layout = computeLayout(p.width, p.height, p.iconSize, space, 1, 136, pinned.length);
@@ -75,10 +76,18 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { clearTimeout(showTimer.current); if (editing) { clearPress(); clearGroupDrag(); setEditing(false); } else if (stack || more) close(); else { close(); setVisible(false); } } };
     const blur = () => { clearGroupDrag(); clearPress(); setKeyboard(false); };
-    window.addEventListener('keydown', key); window.addEventListener('blur', blur);
-    return () => { window.removeEventListener('keydown', key); window.removeEventListener('blur', blur); };
+    const cascade = () => { if (press.current) press.current.needsMove = true; };
+    window.addEventListener('keydown', key); window.addEventListener('blur', blur); window.addEventListener('luma:cascade-layout', cascade);
+    return () => { window.removeEventListener('keydown', key); window.removeEventListener('blur', blur); window.removeEventListener('luma:cascade-layout', cascade); };
   }, [stack, more, editing]);
   useEffect(() => subscribeHost(event => { if (overlay && event.event === 'window.visibility') { clearTimeout(hideTimer.current); clearTimeout(showTimer.current); clearPress(); setVisible(event.data.visible); setHostVisibilityId(event.data.visibilityId); setVisibilityEpoch(epoch => epoch + 1); if (!event.data.visible) { clearGroupDrag(); setEditing(false); setDragging(false); setKeyboard(false); } } }), [overlay]);
+  useEffect(() => {
+    if (!active || active.items.length < 2 || !highlight || !press.current?.long) return;
+    const item = active.items.find(item => item.id === highlight && item.kind === 'folder');
+    if (!item || browseItemId === item.id) return;
+    const timer = setTimeout(() => { menuGeneration.current++; if (press.current) press.current.needsMove = true; setBrowseItemId(item.id); }, 450);
+    return () => clearTimeout(timer);
+  }, [active, highlight, browseItemId]);
   // Commit-time cleanup is essential: a passive effect can send yesterday's
   // `visible=false` with today's expanded DOM and immediately hide the HWND.
   useLayoutEffect(() => {
@@ -104,7 +113,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
     const observer = new ResizeObserver(sync); container.current.querySelectorAll('[data-native-hit]').forEach(el => observer.observe(el));
     // 原生 toast 在 Dock 外渲染；必须随出现/消失更新 HWND 裁剪，否则错误提示不可见。
     const mutations = new MutationObserver(() => { document.querySelectorAll('[data-native-hit]').forEach(el => observer.observe(el)); sync(); });
-    mutations.observe(document.getElementById('root')!, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-width-animating'] });
+    mutations.observe(document.getElementById('root')!, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-width-animating', 'data-cascade-layout'] });
     sync(); window.addEventListener('resize', sync);
     const element = container.current; element.addEventListener('animationend', sync);
     return () => { disposed = true; mutations.disconnect(); observer.disconnect(); window.removeEventListener('resize', sync); element.removeEventListener('animationend', sync); };
@@ -119,7 +128,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
     }
     setMore(false);
     event.currentTarget.setPointerCapture(event.pointerId);
-    const record = { project, origin, long: false, x: event.clientX, y: event.clientY, button: event.currentTarget, pointer: event.pointerId, timer: setTimeout(() => {}, 0) };
+    const record = { project, origin, long: false, x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, needsMove: false, button: event.currentTarget, pointer: event.pointerId, timer: setTimeout(() => {}, 0) };
     record.timer = setTimeout(() => { record.long = true; if (origin === 'project') showStack(project.id); }, 300);
     press.current = record;
     setPressing(true);
@@ -128,13 +137,16 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
     const drag = groupDrag.current;
     if (drag) { drag.moved ||= Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 6; const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject; setGroupTarget(drag.moved && target !== drag.source ? target ?? null : null); return; }
     const record = press.current; if (!record) return;
+    if (event.clientX !== record.lastX || event.clientY !== record.lastY) record.needsMove = false;
+    record.lastX = event.clientX; record.lastY = event.clientY;
     if (!record.long && Math.hypot(event.clientX - record.x, event.clientY - record.y) > 6) { clearPress(); return; }
     const hit = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-item-id]');
     setHighlight(record.long && hit?.dataset.projectId === record.project.id ? hit.dataset.itemId ?? null : null);
   };
   const activateEntry = (project: Project, child: HTMLElement) => {
     if (child instanceof HTMLButtonElement && child.disabled) return;
-    if (child.dataset.testTaskId && child.dataset.folderItemId) void runProjectTest(project.id, child.dataset.folderItemId, child.dataset.testTaskId);
+    if (child.dataset.entryAction === 'enter') child.click();
+    else if (child.dataset.testTaskId && child.dataset.folderItemId) void runProjectTest(project.id, child.dataset.folderItemId, child.dataset.testTaskId);
     else if (child.dataset.folderItemId && child.dataset.itemId) void openDirectory(project.id, child.dataset.folderItemId, child.dataset.itemId);
     else { const item = project.items.find(item => item.id === child.dataset.itemId); if (item) open(project, item); }
   };
@@ -142,7 +154,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
     if (testRequest.current) return;
     testRequest.current = true; setRunningTest(true); setMenuError('');
     const generation = menuGeneration.current;
-    const stillCurrent = () => generation === menuGeneration.current && container.current?.querySelector<HTMLElement>('[data-test-task-id]')?.dataset.testTaskId === taskId;
+    const stillCurrent = () => generation === menuGeneration.current && [...container.current?.querySelectorAll<HTMLElement>('[data-test-task-id]') ?? []].some(element => element.dataset.testTaskId === taskId);
     try {
       const result = await request('project.runTest', { projectId, itemId, taskId });
       if (result.opened && stillCurrent()) close();
@@ -166,6 +178,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
       return;
     }
     const record = press.current; if (!record) return;
+    if (record.needsMove) { clearPress(); return; }
     const element = document.elementFromPoint(event.clientX, event.clientY);
     const child = element?.closest<HTMLElement>('[data-item-id]');
     const target = child?.dataset.projectId === record.project.id ? 'child' : record.button.contains(element ?? null) ? 'origin' : 'outside';
@@ -191,10 +204,12 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
       <nav ref={dock} aria-label="快捷启动面板" data-native-hit className={`dock glass material-${p.material} ${editing ? 'dock-editing' : ''}`} style={{ width: layout.width, height: layout.height, borderRadius: p.radius, transformOrigin: 'center top', '--dock-icon': `${layout.icon}px`, '--dock-font': `${layout.font}px` } as CSSProperties}>
         <div className="dock-launchers">
         {shown.map(project => <div className={`dock-slot ${groupSource === project.id ? 'group-drag-source' : ''} ${groupTarget === project.id ? 'group-drop-target' : ''}`} data-drop-project={project.id} key={project.id} style={{ width: layout.cell }}>
+          <SplitFolderTile enabled={!editing && (project.items.length > 1 || project.items[0].kind === 'folder')} className="dock-split" name={project.name} projectId={project.id} entryId={project.items[0].id} onOpen={() => open(project, project.items[0])} onEnter={() => showStack(project.id)} gesture={{ onPointerDown: event => begin(event, project, 'entry'), onPointerMove: move, onPointerUp: end, onPointerCancel: clearPress }}>
           <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); showStack(project.id); }} onClick={event => { if (event.detail === 0) { if (editing) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>
             <GroupIcon projectId={project.id} items={project.items} color={project.color} size={layout.icon}/>
             <span className="dock-label">{project.name}</span>
           </button>
+          </SplitFolderTile>
           <button className="stack-chevron" aria-label={`展开 ${project.name} 堆叠`} onClick={() => { clearTimeout(hideTimer.current); showStack(stack === project.id ? null : project.id); }}><ChevronDown size={11}/></button>
         </div>)}
         {overflow && <button className="dock-more" aria-label="更多项目" onClick={() => { setMore(!more); setStack(null); }}><MoreHorizontal size={25}/><span>更多</span></button>}
@@ -211,20 +226,14 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
       {active && <section aria-label={`${active.name} 文件夹堆叠`} data-native-hit className={`stack-panel glass material-${p.material}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 220}px)`, maxHeight: `calc(100vh - ${layout.height + 40}px)` } as CSSProperties}>
         <header><div className="stack-heading"><span className={`project-dot dot-${active.color}`}/><strong>{active.name}</strong><span>{active.items.length} 个入口</span></div><button className="icon-button" aria-label="关闭堆叠" onClick={close}><X size={16}/></button></header>
         {menuError && <p className="folder-browser-message" role="alert">{menuError}</p>}
-        {browseItem ? <FolderBrowser key={`${active.id}/${browseItem.id}`} projectId={active.id} item={browseItem} color={active.color} highlight={highlight}
+        <div className="stack-body-cascade">
+        {(active.items.length > 1 || !browseItem) && <GroupEntryMenu project={active} highlight={highlight} onOpen={item => open(active, item)} onBrowse={item => { menuGeneration.current++; setBrowseItemId(item.id); }} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>}
+        {browseItem && <FolderBrowser key={`${active.id}/${browseItem.id}`} projectId={active.id} item={browseItem} color={active.color} highlight={highlight} leadingColumns={active.items.length > 1 ? 1 : 0}
+          onNavigate={() => { menuGeneration.current++; setMenuError(''); }}
           onRunTest={taskId => void runProjectTest(active.id, browseItem.id, taskId)} runningTest={runningTest}
           onOpen={entryId => void openDirectory(active.id, browseItem.id, entryId)} onBackToGroup={active.items.length > 1 ? () => setBrowseItemId(null) : undefined}
-          onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>
-          : <>
-        <div className="stack-items launch-grid">
-          {active.items.map((item, index) => <div className="group-entry-row" key={item.id}><button data-item-id={item.id} data-project-id={active.id} className={`stack-item ${highlight === item.id ? 'selected' : ''}`}
-            onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress} onLostPointerCapture={clearPress}
-            onClick={event => { if (event.detail === 0) open(active, item); }} title={item.path}>
-            <ItemIcon projectId={active.id} itemId={item.id} pathKey={item.path} kind={item.kind} color={active.color} size={38}/><span><strong>{item.name}</strong><small>{item.path}</small></span><span className="item-index">{String(index + 1).padStart(2, '0')}</span><ArrowUpRight size={15}/>
-          </button>{item.kind === 'folder' && <button className="directory-browse icon-button" aria-label={`浏览 ${item.name} 子目录`} onClick={() => { clearPress(); setBrowseItemId(item.id); }}><ChevronRight size={17}/></button>}</div>)}
+          onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>}
         </div>
-        <footer><button data-item-id={active.items[0].id} data-project-id={active.id} className={`text-button directory-open-current ${highlight === active.items[0].id ? 'selected' : ''}`} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress} onLostPointerCapture={clearPress} onClick={event => { if (event.detail === 0) open(active, active.items[0]); }}><FolderOpen size={14}/>打开默认入口</button><span><MousePointer2 size={12}/>滑向目标，松手打开</span></footer>
-        </>}
         {active.items.length > 1 && onUngroup && <div className="stack-group-actions"><span>组内入口仅保存引用</span><button className="text-button" onClick={() => { onUngroup(active.id); close(); }}>拆成独立图标</button></div>}
       </section>}
       {more && <section className={`more-panel glass material-${p.material}`} data-native-hit aria-label="更多项目列表">{pinned.slice(shown.length).map(project => <button key={project.id} data-drop-project={project.id}

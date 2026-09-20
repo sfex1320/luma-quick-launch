@@ -54,15 +54,17 @@ test('single-folder long press lists actual immediate contents; navigation and b
   expect(await calls(page, 'shell.openItem')).toHaveLength(0);
   await page.mouse.up();
   expect((await calls(page, 'folder.list'))[0].params).toEqual({ projectId: 'directory', itemId: 'root' });
+  await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
   expect((await calls(page, 'folder.list')).at(-1).params).toEqual({ projectId: 'directory', itemId: 'root', folderId: 'token-design' });
   await page.getByRole('button', { name: '返回上一层', exact: true }).click();
   await expect(page.locator('.directory-row')).toHaveCount(3);
-  expect((await calls(page, 'folder.list')).at(-1).params.folderId).toBe('token-root');
+  expect(await calls(page, 'folder.list')).toHaveLength(2); // Returning retains the loaded parent.
+  await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '打开当前目录', exact: true }).click();
+  await page.locator('.folder-column').last().getByRole('button', { name: '打开当前目录', exact: true }).click();
   await expect.poll(() => calls(page, 'folder.open')).toHaveLength(1);
   expect((await calls(page, 'folder.open'))[0].params).toEqual({ projectId: 'directory', itemId: 'root', entryId: 'token-design' });
   await expect(page.locator('.stack-panel')).toHaveCount(0);
@@ -98,9 +100,11 @@ test('run tests participates in slide release, outside release cancels and folde
   await page.mouse.move(10, 650); await page.mouse.up();
   expect(await calls(page, 'project.runTest')).toHaveLength(0);
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
-  await expect(run).toHaveCount(0);
+  await expect(page.locator('.folder-column').last().getByRole('button', { name: '运行测试', exact: true })).toHaveCount(0);
+  await expect(run).toBeVisible(); // The retained parent keeps its own action.
   await page.getByRole('button', { name: '返回上一层', exact: true }).click();
   await expect(run).toBeVisible();
   await run.focus(); await page.keyboard.press('Enter');
@@ -123,6 +127,7 @@ test('a pending test response cannot close a subsequently browsed child director
   await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
   await page.getByRole('button', { name: '运行测试', exact: true }).click();
+  await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
   await page.evaluate(async () => {
@@ -226,6 +231,7 @@ test('mixed groups include the first entry, browse folder members and launch a s
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
   await expect(page.locator('.group-entry-row')).toHaveCount(2);
   await expect(page.locator('.group-entry-row').first().locator('.stack-item')).toHaveAttribute('data-item-id', 'root');
+  await page.locator('.group-column .stack-item[data-item-id="root"]').hover();
   await page.getByRole('button', { name: '浏览 电梯贴 子目录', exact: true }).click();
   await expect(page.locator('.directory-row')).toHaveCount(3);
   await page.getByRole('button', { name: '返回上一层', exact: true }).click();

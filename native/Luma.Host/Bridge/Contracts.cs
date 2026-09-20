@@ -35,6 +35,14 @@ public sealed class LaunchItem
     [JsonRequired, JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonRequired, JsonPropertyName("path")] public string Path { get; set; } = "";
     [JsonRequired, JsonPropertyName("kind")] public string Kind { get; set; } = "";
+    [JsonPropertyName("launch"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LaunchConfiguration? Launch { get; set; }
+}
+
+public sealed record LaunchConfiguration
+{
+    [JsonRequired, JsonPropertyName("command")] public string Command { get; init; } = "";
+    [JsonRequired, JsonPropertyName("workingDirectory")] public string WorkingDirectory { get; init; } = "";
 }
 
 public sealed class Preferences
@@ -109,6 +117,15 @@ public static class StateValidator
                     if (string.IsNullOrEmpty(item.Name) || item.Name.Length > 120) errors.Add($"项目 {label} 入口 {itemLabel}: 名称长度需在 1–120 字之间。");
                     if (string.IsNullOrEmpty(item.Path) || item.Path.Length > 4096) errors.Add($"项目 {label} 入口 {itemLabel}: 路径长度需在 1–4096 字之间。");
                     if (!Kinds.Contains(item.Kind)) errors.Add($"项目 {label} 入口 {itemLabel}: kind 枚举非法。");
+                    if (item.Launch is { } launch)
+                    {
+                        if (item.Kind != "folder") errors.Add($"项目 {label} 入口 {itemLabel}: 只有文件夹可以保存启动命令。");
+                        if (string.IsNullOrWhiteSpace(launch.Command) || launch.Command.Length > 1000 || launch.Command.IndexOfAny(['\r', '\n', '\0']) >= 0)
+                            errors.Add($"项目 {label} 入口 {itemLabel}: 启动命令必须为单行非空文本，最长 1000 字。");
+                        if (string.IsNullOrWhiteSpace(launch.WorkingDirectory) || launch.WorkingDirectory.Length > 4096 ||
+                            launch.WorkingDirectory.IndexOfAny(['\r', '\n', '\0']) >= 0 || !System.IO.Path.IsPathFullyQualified(launch.WorkingDirectory))
+                            errors.Add($"项目 {label} 入口 {itemLabel}: 工作目录必须为绝对路径，最长 4096 字。");
+                    }
                 }
             }
         }
