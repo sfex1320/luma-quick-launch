@@ -18,4 +18,18 @@ describe('adaptive layout', () => {
     const r = computeLayout(640, 88, 40, 1200, 1, 132);
     expect(r.capacity * (r.cell + 8) - 8 + 32 + 132).toBeLessThanOrEqual(r.width);
   });
+  it('grows from the saved width to fit pinned top-level projects', () => {
+    const r = computeLayout(320, 88, 40, 1200, 1, 136, 6);
+    expect(r.width).toBe(592);
+    expect(r.capacity).toBe(6);
+  });
+  it('shrinks with the pinned count but never below the saved width', () => {
+    expect(computeLayout(640, 88, 40, 1200, 1, 136, 2).width).toBe(640);
+  });
+  it('caps adaptive growth at both 1120 and the available viewport', () => {
+    expect(computeLayout(320, 88, 40, 1600, 1, 136, 30).width).toBe(1120);
+    const narrow = computeLayout(320, 88, 40, 700, 1, 136, 30);
+    expect(narrow.width).toBe(676);
+    expect(narrow.capacity).toBe(7);
+  });
 });

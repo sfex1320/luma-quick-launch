@@ -22,11 +22,14 @@ public sealed class DockWindow : Window, IHostClient
     private readonly BridgeRouter _router;
     private readonly BackdropService _backdrop;
     private readonly WebView2 _web;
+    private readonly WebViewReliability _reliability;
     private IntPtr _hwnd;
     private HwndSource? _source;
     private readonly DockMessageQueue _messages = new();
     private bool _expanded;
     private bool _visibleToUser;
+    private bool _reloadingRenderer;
+    private bool _activationRequested;
     private double _cssPixelScale;
     private IReadOnlyList<Rect> _rectsDip = Array.Empty<Rect>();
 
@@ -38,6 +41,8 @@ public sealed class DockWindow : Window, IHostClient
     public bool HasSynced { get; private set; }
     public event Action? LayoutReady;
     public event Action? PixelScaleChanged;
+    /// <summary>Renderer reload loses DOM visibility state; App must close the current native gesture before reload.</summary>
+    public event Action? RendererReloading;
 
     public DockWindow(BridgeRouter router, BackdropService backdrop, CoreWebView2Environment environment, double screenWidthDip, double heightDip)
     {
@@ -65,6 +70,17 @@ public sealed class DockWindow : Window, IHostClient
             VerticalAlignment = VerticalAlignment.Stretch,
         };
         Content = _web;
+        _reliability = new WebViewReliability(_web, "浮岛", message =>
+        {
+            Log.Error(message);
+            MessageBox.Show(message, "Luma WebView2", MessageBoxButton.OK, MessageBoxImage.Error);
+            Application.Current.Shutdown();
+        }, () =>
+        {
+            _reloadingRenderer = true;
+            HasSynced = false;
+            RendererReloading?.Invoke();
+        });
         _web.CoreWebView2InitializationCompleted += OnCoreWebView2Ready;
         _ = _web.EnsureCoreWebView2Async(environment);
         // 立即创建原生句柄但不显示：WebView2 初始化、DWM 扩展帧与命中区域都依赖 HWND。
@@ -103,6 +119,7 @@ public sealed class DockWindow : Window, IHostClient
             return;
         }
         var core = _web.CoreWebView2!;
+        _reliability.Attach(core);
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.IsZoomControlEnabled = false;
@@ -111,7 +128,11 @@ public sealed class DockWindow : Window, IHostClient
 
         core.SetVirtualHostNameToFolderMapping("luma.local", App.DistDirectory, CoreWebView2HostResourceAccessKind.Allow);
         core.NavigationStarting += OnNavigationStarting;
-        core.NavigationCompleted += (_, args) => Log.Info($"浮岛导航完成 ok={args.IsSuccess} err={args.WebErrorStatus}");
+        core.NavigationCompleted += (_, args) =>
+        {
+            Log.Info($"浮岛导航完成 ok={args.IsSuccess} err={args.WebErrorStatus}");
+            _reloadingRenderer = false;
+        };
         core.NewWindowRequested += (_, args) => args.Handled = true;
         core.WebMessageReceived += OnWebMessage;
         _router.Attach(this);
@@ -192,6 +213,9 @@ public sealed class DockWindow : Window, IHostClient
         RefreshRegion();
         Log.Info($"window.sync 应用 expanded={expanded} rects={rectsDip.Count} visibleToUser={_visibleToUser} cssScale={CssPixelScale:0.##}");
         if (!HasSynced) { HasSynced = true; LayoutReady?.Invoke(); }
+        // Suspending before this first accepted sync can deadlock readiness: a suspended document
+        // cannot send the layout that App requires before reveal.
+        if (!_visibleToUser && !expanded && !_reloadingRenderer && !_activationRequested) _ = _reliability.SuspendAsync();
     }
 
     /// <summary>仅在用户唤出可见时按缓存 rects 应用命中区域，否则清空（整窗穿透）。</summary>
@@ -229,6 +253,7 @@ public sealed class DockWindow : Window, IHostClient
     public void PreInitialize()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(PreInitialize); return; }
+        _reliability.Resume();
         if (!IsVisible) Show();
         RefreshRegion();
         Win32.SetWindowPos(_hwnd, Win32.HwndTopmost, 0, 0, 0, 0, Win32.SWP_NOACTIVATE | Win32.SWP_NOMOVE | Win32.SWP_NOSIZE);
@@ -238,7 +263,9 @@ public sealed class DockWindow : Window, IHostClient
     public void ShowDock()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(ShowDock); return; }
+        _reliability.Resume();
         _visibleToUser = true;
+        _activationRequested = false;
         if (!IsVisible) Show();
         Win32.SetWindowPos(_hwnd, Win32.HwndTopmost, 0, 0, 0, 0, Win32.SWP_NOACTIVATE | Win32.SWP_NOMOVE | Win32.SWP_NOSIZE);
         RefreshRegion();
@@ -248,10 +275,19 @@ public sealed class DockWindow : Window, IHostClient
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(HideDock); return; }
         _visibleToUser = false;
+        _activationRequested = false;
         RefreshRegion();
         _expanded = false;
         IsInteracting = false;
         Hide();
+        if (!_reloadingRenderer) _ = _reliability.SuspendAsync();
+    }
+
+    /// <summary>Wake the document before App checks whether a fresh layout has arrived.</summary>
+    public void ResumeForActivation()
+    {
+        _activationRequested = true;
+        _reliability.Resume();
     }
 
     // Consult the actual physical window region, not WindowFromPoint: Explorer's drag
@@ -289,6 +325,7 @@ public sealed class DockWindow : Window, IHostClient
 
     protected override void OnClosed(EventArgs e)
     {
+        _reliability.Dispose();
         _web.Dispose();
         base.OnClosed(e);
     }

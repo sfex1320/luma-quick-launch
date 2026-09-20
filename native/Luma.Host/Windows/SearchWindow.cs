@@ -12,6 +12,7 @@ public sealed class SearchWindow : Window, IHostClient
     private readonly WebView2 _web;
     private readonly BridgeRouter _router;
     private readonly WindowTheme _theme;
+    private readonly WebViewReliability _reliability;
     public string ClientId => "search";
     public SearchWindow(BridgeRouter router, CoreWebView2Environment environment, StateStore store)
     {
@@ -21,11 +22,24 @@ public sealed class SearchWindow : Window, IHostClient
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         _web = new WebView2();
         _theme = new WindowTheme(this, _web, store);
+        _reliability = new WebViewReliability(_web, "搜索窗", message =>
+        {
+            Log.Error(message);
+            MessageBox.Show(message, "Luma WebView2", MessageBoxButton.OK, MessageBoxImage.Error);
+            Close();
+        });
         Content = _web;
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Minimized) _ = _reliability.SuspendAsync();
+            else _reliability.Resume();
+        };
         _web.CoreWebView2InitializationCompleted += (_, e) =>
         {
             if (!e.IsSuccess) { Log.Error($"搜索窗初始化失败: {e.InitializationException?.Message}"); return; }
             var core = _web.CoreWebView2!;
+            _reliability.Attach(core);
+            if (WindowState == WindowState.Minimized) _ = _reliability.SuspendAsync();
             _theme.Refresh();
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
@@ -35,7 +49,11 @@ public sealed class SearchWindow : Window, IHostClient
             core.SetVirtualHostNameToFolderMapping("luma.local", App.DistDirectory, CoreWebView2HostResourceAccessKind.Allow);
             core.NavigationStarting += (_, args) => args.Cancel = !args.Uri.StartsWith("https://luma.local/", StringComparison.Ordinal);
             core.NewWindowRequested += (_, args) => args.Handled = true;
-            core.NavigationCompleted += (_, args) => { if (args.IsSuccess) FocusSearch(); else Log.Error($"搜索导航失败: {args.WebErrorStatus}"); };
+            core.NavigationCompleted += (_, args) =>
+            {
+                if (args.IsSuccess) FocusSearch(); else Log.Error($"搜索导航失败: {args.WebErrorStatus}");
+                if (WindowState == WindowState.Minimized) _ = _reliability.RetrySuspendAfterNavigationAsync();
+            };
             core.WebMessageReceived += async (_, args) =>
             {
                 try
@@ -66,6 +84,6 @@ public sealed class SearchWindow : Window, IHostClient
     void IHostClient.Detach() { }
     protected override void OnClosed(EventArgs e)
     {
-        _theme.Dispose(); _router.Detach(this); _web.Dispose(); base.OnClosed(e);
+        _reliability.Dispose(); _theme.Dispose(); _router.Detach(this); _web.Dispose(); base.OnClosed(e);
     }
 }

@@ -1,4 +1,4 @@
-param([string]$Version = '0.2.0')
+param([string]$Version = '0.3.0', [switch]$RequireSignature)
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') { throw 'Invalid release version.' }
 $root = Split-Path $PSScriptRoot -Parent
@@ -19,6 +19,9 @@ try {
     npm test
     if ($LASTEXITCODE -ne 0) { throw 'Frontend tests failed.' }
     & (Join-Path $PSScriptRoot 'build-native.ps1') -OutputDirectory $stage
+    if ($RequireSignature) {
+        & (Join-Path $PSScriptRoot 'sign-artifact.ps1') -Path @((Join-Path $stage 'Luma.exe'), (Join-Path $stage 'Luma.dll'))
+    }
     Copy-Item -LiteralPath (Join-Path $root 'docs/portable-readme.txt') -Destination (Join-Path $stage 'README.txt')
     Set-Content -LiteralPath (Join-Path $stage 'Start-Luma.cmd') -Encoding ASCII -Value '@echo off', 'start "" "%~dp0Luma.exe" --settings'
 
@@ -51,7 +54,7 @@ try {
     }
     $commit = (& git rev-parse HEAD 2>$null)
     if ($LASTEXITCODE -ne 0) { throw 'Commit the source before packaging.' }
-    [ordered]@{ product = 'Luma Quick Launch'; version = $Version; platform = 'win-x64'; commit = $commit; builtAtUtc = [DateTime]::UtcNow.ToString('o') } |
+    [ordered]@{ product = 'Luma Quick Launch'; version = $Version; platform = 'win-x64'; commit = $commit; signed = [bool]$RequireSignature; builtAtUtc = [DateTime]::UtcNow.ToString('o') } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'build-info.json') -Encoding UTF8
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem

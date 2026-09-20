@@ -1,9 +1,10 @@
 param(
     [Parameter(Mandatory = $true)][string]$SourceDirectory,
-    [string]$Version = '0.2.0',
+    [string]$Version = '0.3.0',
     [string]$OutputDirectory,
     [string]$CompilerPath,
-    [switch]$BootstrapCompiler
+    [switch]$BootstrapCompiler,
+    [switch]$RequireSignature
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -14,6 +15,27 @@ foreach ($required in @('Luma.exe', 'Luma.dll', 'Luma.runtimeconfig.json', 'dist
 }
 $buildInfo = Get-Content -LiteralPath (Join-Path $source 'build-info.json') -Raw | ConvertFrom-Json
 if ($buildInfo.version -ne $Version -or $buildInfo.platform -ne 'win-x64') { throw 'Installer requires a matching verified win-x64 release payload.' }
+if ($RequireSignature) {
+    $expectedThumbprint = ($env:LUMA_SIGNING_THUMBPRINT -replace '\s', '').ToUpperInvariant()
+    if ($expectedThumbprint -notmatch '^[0-9A-F]{40}$') { throw 'LUMA_SIGNING_THUMBPRINT must identify the trusted code-signing certificate.' }
+    if ($buildInfo.signed -ne $true) { throw 'A signed installer requires a release payload whose build-info.signed value is true.' }
+    foreach ($signedPayload in @('Luma.exe', 'Luma.dll')) {
+        $signedPath = Join-Path $source $signedPayload
+        $signature = Get-AuthenticodeSignature -LiteralPath $signedPath
+        $actualThumbprint = if ($signature.SignerCertificate) { ($signature.SignerCertificate.Thumbprint -replace '\s', '').ToUpperInvariant() } else { '' }
+        if ($signature.Status -ne 'Valid' -or $actualThumbprint -ne $expectedThumbprint -or -not $signature.TimeStamperCertificate) {
+            throw "Signed release payload verification failed: $signedPayload"
+        }
+    }
+}
+$webViewBootstrapper = Join-Path $source 'MicrosoftEdgeWebview2Setup.exe'
+if (-not (Test-Path -LiteralPath $webViewBootstrapper)) {
+    & (Join-Path $PSScriptRoot 'get-webview2-bootstrapper.ps1') -OutputPath $webViewBootstrapper
+}
+$webViewSignature = Get-AuthenticodeSignature -LiteralPath $webViewBootstrapper
+if ($webViewSignature.Status -ne 'Valid' -or $webViewSignature.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
+    throw 'Release payload contains an invalid or non-Microsoft WebView2 bootstrapper.'
+}
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $root 'releases' }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $output -Force | Out-Null
@@ -51,6 +73,9 @@ foreach ($file in $compilerFiles.Keys) {
 }
 & $CompilerPath '/Qp' "/DSourceDirectory=$source" "/DAppVersion=$Version" "/DOutputDirectory=$output" (Join-Path $root 'installer/luma.iss')
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'Installer compilation failed.' }
+if ($RequireSignature) {
+    & (Join-Path $PSScriptRoot 'sign-artifact.ps1') -Path $installer
+}
 $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$installer.sha256" -Encoding ASCII -Value "$hash  $([IO.Path]::GetFileName($installer))"
 Write-Host "Built current-user installer: $installer"

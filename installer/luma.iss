@@ -19,7 +19,7 @@ DefaultGroupName=Luma Quick Launch
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-MinVersion=10.0.17763
+MinVersion=10.0.19045
 DisableProgramGroupPage=no
 AllowNoIcons=yes
 UsePreviousAppDir=yes
@@ -40,7 +40,10 @@ SetupLogging=yes
 Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
-Source: "{#SourceDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Start-Luma.cmd"
+Source: "{#SourceDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Start-Luma.cmd,MicrosoftEdgeWebview2Setup.exe"
+Source: "{#SourceDirectory}\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDirectory}\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
+Source: "..\scripts\install-webview2-prerequisite.ps1"; Flags: dontcopy
 
 [Icons]
 ; We delete these ourselves only while they still point at this installed copy.
@@ -58,6 +61,47 @@ const
 var
   PreviousInstallDir: String;
   SkippedShortcut: Boolean;
+
+function WebView2RuntimeInstalled(): Boolean;
+var
+  Version: String;
+begin
+  Result := False;
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) then
+    Result := (Version <> '') and (Version <> '0.0.0.0');
+  if not Result then
+    if RegQueryStringValue(HKLM32, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) then
+      Result := (Version <> '') and (Version <> '0.0.0.0');
+end;
+
+function EnsureWebView2Runtime(var LastExitCode: Integer): Boolean;
+var
+  Attempt: Integer;
+  Started: Boolean;
+  Parameters: String;
+begin
+  Result := True;
+  LastExitCode := 0;
+  if WebView2RuntimeInstalled() then begin
+    Log('Microsoft Edge WebView2 Runtime is already installed.');
+    Exit;
+  end;
+  ExtractTemporaryFile('MicrosoftEdgeWebview2Setup.exe');
+  ExtractTemporaryFile('install-webview2-prerequisite.ps1');
+  for Attempt := 1 to 2 do begin
+    Log(Format('Installing the per-user WebView2 Runtime (attempt %d of 2).', [Attempt]));
+    Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{tmp}\install-webview2-prerequisite.ps1') + '" -BootstrapperPath "' +
+      ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe') + '" -TimeoutSeconds 600';
+    Started := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Parameters,
+      ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, LastExitCode);
+    if Started and WebView2RuntimeInstalled() then Exit;
+    if Started then Log(Format('WebView2 bootstrapper exit code: %d', [LastExitCode]))
+    else Log('WebView2 bootstrapper could not be started.');
+    if LastExitCode = 1460 then Break;
+  end;
+  Result := False;
+end;
 
 function CanCreateShortcut(const Path: String): Boolean;
 var
@@ -159,10 +203,17 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ExitCode: Integer;
 begin
   Result := '';
   if not CloseInstalledCopy() then
-    Result := 'Please close Luma Quick Launch from its tray menu, then try again. Your projects and settings will be kept.';
+    Result := 'Please close Luma Quick Launch from its tray menu, then try again. Your projects and settings will be kept.'
+  else if not EnsureWebView2Runtime(ExitCode) then
+    if ExitCode = 1460 then
+      Result := 'Microsoft Edge WebView2 Runtime installation timed out and was stopped. Check the internet connection, then run Setup again.'
+    else
+      Result := Format('Microsoft Edge WebView2 Runtime could not be installed (exit code %d). Check the internet connection, then run Setup again.', [ExitCode]);
 end;
 
 function InitializeUninstall(): Boolean;

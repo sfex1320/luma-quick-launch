@@ -16,6 +16,7 @@ public sealed class SettingsWindow : Window, IHostClient
     private readonly WebView2 _web;
     private readonly BridgeRouter _router;
     private readonly WindowTheme _theme;
+    private readonly WebViewReliability _reliability;
     private IntPtr _hwnd;
     private string _section;
 
@@ -29,7 +30,8 @@ public sealed class SettingsWindow : Window, IHostClient
         _section = section;
         _web = null!; // 占位，构造下方赋值
         var initial = SectionUrl(section);
-        Title = "Luma 设置";
+        Title = Environment.GetEnvironmentVariable("LUMA_TEST_SESSION") == "soak"
+            ? "Luma 设置 · 后台测试副本（独立配置）" : "Luma 设置";
         Width = 1180;
         Height = 780;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -38,7 +40,18 @@ public sealed class SettingsWindow : Window, IHostClient
         var web = new WebView2();
         _web = web;
         _theme = new WindowTheme(this, web, store);
+        _reliability = new WebViewReliability(web, "管理窗", message =>
+        {
+            Log.Error(message);
+            MessageBox.Show(message, "Luma WebView2", MessageBoxButton.OK, MessageBoxImage.Error);
+            Close();
+        });
         Content = web;
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Minimized) _ = _reliability.SuspendAsync();
+            else _reliability.Resume();
+        };
         web.CoreWebView2InitializationCompleted += (_, e) =>
         {
             if (!e.IsSuccess)
@@ -47,6 +60,8 @@ public sealed class SettingsWindow : Window, IHostClient
                 return;
             }
             var core = web.CoreWebView2!;
+            _reliability.Attach(core);
+            if (WindowState == WindowState.Minimized) _ = _reliability.SuspendAsync();
             _theme.Refresh();
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
@@ -68,7 +83,11 @@ public sealed class SettingsWindow : Window, IHostClient
                 // 前端的「独立预览」在原生环境唤出真实浮岛，其余新窗口仍阻止。
                 if (args.Uri == "https://luma.local/index.html?view=dock") showDock?.Invoke();
             };
-            core.NavigationCompleted += (_, args) => { if (args.IsSuccess) NavigateToSection(_section); };
+            core.NavigationCompleted += (_, args) =>
+            {
+                if (args.IsSuccess) NavigateToSection(_section);
+                if (WindowState == WindowState.Minimized) _ = _reliability.RetrySuspendAfterNavigationAsync();
+            };
             core.WebMessageReceived += async (_, args) =>
             {
                 try
@@ -121,6 +140,7 @@ public sealed class SettingsWindow : Window, IHostClient
 
     protected override void OnClosed(EventArgs e)
     {
+        _reliability.Dispose();
         _theme.Dispose();
         _router.Detach(this);
         // 释放该窗口的 WebView2 UI 资源；常驻部分（浮岛/存储）不受影响。

@@ -92,7 +92,7 @@ try {
   await settings.getByRole('button',{name:'取消',exact:true}).click();
   await expect(settings.getByRole('heading',{name:'外观',exact:true})).toBeVisible();
   check('跨原生窗口切换栏目保留项目草稿');
-  await settings.getByLabel('面板宽度',{exact:true}).fill('800');
+  await settings.getByLabel('初始宽度',{exact:true}).fill('800');
   await expect.poll(async()=>JSON.parse(await readFile(path.join(data,'state.json'),'utf8')).preferences.width).toBe(800);
   await expect.poll(()=>dock.locator('.dock').evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(800);
   check('真实配置落盘并同步浮岛宽度');

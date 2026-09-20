@@ -41,6 +41,7 @@ if (Test-Path (Join-Path $root 'node_modules')) {
 Pop-Location
 
 # 2) 测试通过后才替换产物；SDK 选择必须在 global.json 所在目录内执行。
+& (Join-Path $PSScriptRoot 'make-icon.ps1')
 Push-Location $native
 try {
 Write-Host "== dotnet test =="
@@ -73,6 +74,8 @@ if ((Get-FileHash (Join-Path $root 'dist\index.html')).Hash -ne (Get-FileHash (J
 }
 
 # 5) 产物摘要
+& (Join-Path $PSScriptRoot 'get-webview2-bootstrapper.ps1')
+Copy-Item -LiteralPath (Join-Path $root 'releases/dependencies/MicrosoftEdgeWebview2Setup.exe') -Destination (Join-Path $outDir 'MicrosoftEdgeWebview2Setup.exe') -Force
 $exe = Join-Path $outDir 'Luma.exe'
 if (-not (Test-Path $exe)) { throw "发布产物缺少 Luma.exe" }
 if (-not (Test-Path (Join-Path $outDir 'dist\index.html'))) { throw "发布产物缺少 dist\index.html" }

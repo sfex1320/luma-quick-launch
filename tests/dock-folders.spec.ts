@@ -194,7 +194,8 @@ for (const fail of [false, true]) {
 }
 
 for (const fromMore of [true, false]) {
-  test(`320px organize mode merges ${fromMore ? 'from More into the main bar' : 'from the main bar into More'}`, async ({ page }) => {
+  test(`narrow viewport organize mode merges ${fromMore ? 'from More into the main bar' : 'from the main bar into More'}`, async ({ page }) => {
+    await page.setViewportSize({ width: 340, height: 720 });
     const narrow = structuredClone(initial);
     narrow.preferences.width = 320;
     await attachHost(page, narrow);
@@ -221,7 +222,7 @@ for (const fromMore of [true, false]) {
   });
 }
 
-for (const width of [320, 640, 1000]) test(`toolbar remains right-aligned and directory tiles stay fixed at dock width ${width}`, async ({ page }) => {
+for (const [width, expectedWidth] of [[320, 376], [640, 640], [1000, 1000]]) test(`toolbar remains right-aligned and directory tiles stay fixed at dock width ${width}`, async ({ page }) => {
   const seed = structuredClone(initial); seed.preferences.width = width;
   await attachHost(page, seed);
   const alignment = await page.evaluate(() => {
@@ -229,13 +230,84 @@ for (const width of [320, 640, 1000]) test(`toolbar remains right-aligned and di
     const tools = document.querySelector('.dock-tools')!.getBoundingClientRect();
     return { right: dock.right - tools.right, tools: tools.width, dock: dock.width };
   });
-  expect(alignment.right).toBeCloseTo(17, 0); expect(alignment.tools).toBe(126); expect(alignment.dock).toBe(width);
+  expect(alignment.right).toBeCloseTo(17, 0); expect(alignment.tools).toBe(126); expect(alignment.dock).toBe(expectedWidth);
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
   await expect(page.locator('.directory-row')).toHaveCount(3);
   const boxes = await page.locator('.directory-row').evaluateAll(elements => elements.map(el => { const b = el.getBoundingClientRect(); return { width:b.width,height:b.height }; }));
   expect(boxes).toEqual(Array(3).fill({width:88,height:94}));
   const grid = await page.locator('.directory-items').evaluate(el => ({ display:getComputedStyle(el).display,overflow:el.scrollWidth>el.clientWidth }));
   expect(grid).toEqual({display:'grid',overflow:false});
+});
+
+test('dock grows for pinned top-level projects', async ({ page }) => {
+  const many = structuredClone(initial);
+  many.preferences.width = 320;
+  many.projects = Array.from({ length: 6 }, (_, index) => ({
+    ...many.projects[0], id: `project-${index}`, name: `项目 ${index}`,
+    items: [{ ...many.projects[0].items[0], id: `item-${index}` }],
+  }));
+  await attachHost(page, many);
+  await expect(page.locator('.dock')).toHaveCSS('width', '592px');
+  await expect(page.getByRole('button', { name: '更多项目', exact: true })).toHaveCount(0);
+});
+
+test('grouped children do not consume adaptive dock width', async ({ page }) => {
+  const grouped = structuredClone(initial);
+  grouped.preferences.width = 320;
+  grouped.projects = [{ ...grouped.projects[0], items: Array.from({ length: 6 }, (_, index) => ({ ...grouped.projects[0].items[0], id: `member-${index}` })) }];
+  await attachHost(page, grouped);
+  await expect(page.locator('.dock')).toHaveCSS('width', '320px');
+});
+
+test('adaptive width stops at 1120 and keeps the remaining pinned projects in More', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 700 });
+  const many = structuredClone(initial);
+  many.preferences.width = 320;
+  many.projects = Array.from({ length: 20 }, (_, index) => ({
+    ...many.projects[0], id: `project-${index}`, name: `项目 ${index}`,
+    items: [{ ...many.projects[0].items[0], id: `item-${index}` }],
+  }));
+  await attachHost(page, many);
+  await expect(page.locator('.dock')).toHaveCSS('width', '1120px');
+  await expect(page.getByRole('button', { name: '更多项目', exact: true })).toBeVisible();
+});
+
+test('removing a top-level project uses one FLIP width animation and bounded native sync', async ({ page }) => {
+  const seed = structuredClone(initial);
+  seed.preferences.width = 320;
+  await attachHost(page, seed);
+  await expect(page.locator('.dock')).toHaveCSS('width', '376px');
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
+  const source = projectButton(page, '编辑器');
+  const target = page.locator('.dock-slot[data-drop-project="paint"]');
+  await hold(page, source);
+  const destination = await center(target);
+  await page.mouse.move(destination.x, destination.y, { steps: 8 });
+  await page.evaluate(() => { (window as any).__calls = []; });
+  await page.mouse.up();
+  await expect(page.locator('.dock')).toHaveCSS('width', '320px');
+  await expect.poll(() => page.locator('.dock').evaluate(el => el.getAnimations().some(animation => Number(animation.effect?.getTiming().duration) === 220))).toBe(true);
+  await expect.poll(() => page.locator('.dock').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
+  const syncs = await calls(page, 'window.sync');
+  expect(syncs.length).toBeLessThanOrEqual(5);
+  expect(syncs.some((call: any) => call.params.rects.some((rect: any) => rect.width >= 376))).toBe(true);
+  await page.getByRole('button', { name: '完成整理', exact: true }).click();
+  await projectButton(page, '画图').click();
+  await expect.poll(() => calls(page, 'shell.openItem')).toHaveLength(1);
+});
+
+test('reduced motion applies an adaptive width change without a FLIP animation', async ({ page }) => {
+  const seed = structuredClone(initial);
+  seed.preferences.width = 320;
+  seed.preferences.reducedMotion = true;
+  await attachHost(page, seed);
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
+  await hold(page, projectButton(page, '编辑器'));
+  const destination = await center(page.locator('.dock-slot[data-drop-project="paint"]'));
+  await page.mouse.move(destination.x, destination.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('.dock')).toHaveCSS('width', '320px');
+  expect(await page.locator('.dock').evaluate(el => el.getAnimations().some(animation => Number(animation.effect?.getTiming().duration) === 220))).toBe(false);
 });
 
 test('holding the folder icon and releasing over Open current directory opens its token once', async ({ page }) => {

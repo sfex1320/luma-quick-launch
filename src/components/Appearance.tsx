@@ -9,13 +9,13 @@ export function Appearance({ value, onChange, preview }: { value: Preferences; o
     <section className="cp-card">
       <header className="cp-card-head"><strong>实时预览</strong><span className="cp-pill"><i/>随下方设置即时变化</span></header>
       <div className="desktop-scene"><div className="scene-grid"/>{preview}</div>
-      <footer className="cp-card-foot"><span>当前 {value.width} × {value.height}px · 图标 {value.iconSize}px · 圆角 {value.radius}px</span></footer>
+      <footer className="cp-card-foot"><span>初始宽度 {value.width}px · 高度 {value.height}px · 图标 {value.iconSize}px · 圆角 {value.radius}px</span></footer>
     </section>
     <section className="cp-card">
       <header className="cp-card-head"><strong><SlidersHorizontal size={14}/>尺寸预设</strong><button className="text-button" title="恢复默认外观" aria-label="恢复默认外观" onClick={() => onChange({ ...value, ...defaults })}><RotateCcw size={13}/>恢复默认</button></header>
       <div className="preset-switch" aria-label="尺寸预设">{[{ name: '紧凑', width: 420, height: 76, iconSize: 28 }, { name: '标准', width: 640, height: 88, iconSize: 40 }, { name: '舒展', width: 800, height: 108, iconSize: 56 }].map(preset => <button key={preset.name} className={value.width === preset.width && value.height === preset.height && value.iconSize === preset.iconSize ? 'active' : ''} onClick={() => onChange({ ...value, width: preset.width, height: preset.height, iconSize: preset.iconSize })}>{preset.name}</button>)}</div>
       <div className="sliders">{([
-        ['width', '面板宽度', 320, 1120, 8], ['height', '面板高度', 64, 160, 2], ['iconSize', '图标大小', 24, 64, 2], ['radius', '圆角大小', 12, 32, 1],
+        ['width', '初始宽度', 320, 1120, 8], ['height', '面板高度', 64, 160, 2], ['iconSize', '图标大小', 24, 64, 2], ['radius', '圆角大小', 12, 32, 1],
       ] as const).map(([key, name, min, max, step]) => <label className="slider-control" key={key}><span>{name}<output>{value[key]} <small>px</small></output></span><input aria-label={name} type="range" min={min} max={max} step={step} value={value[key]} onChange={e => change(key, Number(e.target.value))} style={{ '--progress': `${(value[key] - min) / (max - min) * 100}%` } as React.CSSProperties}/></label>)}</div>
     </section>
     <section className="cp-card">

@@ -48,9 +48,9 @@ test('bulk file replacement rejects capacity overflow without deleting existing 
 });
 test('native bridge accepts self-save echo without false conflict', async ({ page }) => {
   await attachHost(page, true); await page.goto('/?mode=native&section=appearance');
-  await page.getByLabel('面板宽度', { exact: true }).fill('720');
+  await page.getByLabel('初始宽度', { exact: true }).fill('720');
   await expect.poll(() => page.evaluate(() => (window as any).__hostState.preferences.width)).toBe(720);
-  await page.getByLabel('面板宽度', { exact: true }).fill('800');
+  await page.getByLabel('初始宽度', { exact: true }).fill('800');
   await expect.poll(() => page.evaluate(() => (window as any).__hostState.preferences.width)).toBe(800);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

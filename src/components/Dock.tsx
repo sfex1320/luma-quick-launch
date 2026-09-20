@@ -11,9 +11,14 @@ import { nativeMode, request, subscribeHost } from '../bridge';
 interface Props { projects: Project[]; preferences: Preferences; onOpen: (p: Project, item: LaunchItem) => void; onSettings: () => void; onSearch: () => void; onDropFiles?: (files: File[], projectId?: string) => Promise<void>; onGroup?: (sourceId: string, targetId: string) => void; onUngroup?: (projectId: string) => void; overlay?: boolean }
 export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, onDropFiles, onGroup, onUngroup, overlay = false }: Props) {
   const container = useRef<HTMLDivElement>(null);
+  const dock = useRef<HTMLElement>(null);
+  const previousDockWidth = useRef<number | undefined>(undefined);
+  const widthAnimation = useRef<{ animation: Animation; x: number; width: number; height: number } | null>(null);
   const [space, setSpace] = useState(900), [visible, setVisible] = useState(!(overlay && nativeMode)), [stack, setStack] = useState<string | null>(null), [more, setMore] = useState(false), [highlight, setHighlight] = useState<string | null>(null);
   const [visibilityEpoch, setVisibilityEpoch] = useState(0);
-  const [hostVisibilityId, setHostVisibilityId] = useState<number | undefined>(0);
+  // A renderer reload has no host event history yet; omit the id so native can accept
+  // the fresh document's first collapsed layout before replaying the current sequence.
+  const [hostVisibilityId, setHostVisibilityId] = useState<number | undefined>(undefined);
   const [editing, setEditing] = useState(false), [browseItemId, setBrowseItemId] = useState<string | null>(null), [menuError, setMenuError] = useState('');
   const [groupSource, setGroupSource] = useState<string | null>(null), [groupTarget, setGroupTarget] = useState<string | null>(null);
   const menuGeneration = useRef(0);
@@ -23,7 +28,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
   const press = useRef<{ project: Project; origin: 'project' | 'entry'; long: boolean; x: number; y: number; timer: ReturnType<typeof setTimeout>; button: HTMLButtonElement; pointer: number } | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), showTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pinned = projects.filter(project => project.pinned);
-  const layout = computeLayout(p.width, p.height, p.iconSize, space, 1, 136);
+  const layout = computeLayout(p.width, p.height, p.iconSize, space, 1, 136, pinned.length);
   const overflow = pinned.length > layout.capacity;
   const shown = pinned.slice(0, overflow ? Math.max(0, layout.capacity - 1) : layout.capacity);
   const active = projects.find(project => project.id === stack);
@@ -34,6 +39,30 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
   const close = () => { menuGeneration.current++; clearPress(); clearGroupDrag(); setStack(null); setBrowseItemId(null); setMenuError(''); setMore(false); };
   const showStack = (id: string | null) => { menuGeneration.current++; setBrowseItemId(null); setMenuError(''); setStack(id); setMore(false); };
   const { present, wrap, getTranslationY, resumeEntrance } = useDockMotion({ visible, reducedMotion: p.reducedMotion, waitForLayout: overlay && nativeMode, onExited: close });
+  useLayoutEffect(() => {
+    const element = dock.current;
+    const fromWidth = previousDockWidth.current;
+    previousDockWidth.current = layout.width;
+    widthAnimation.current?.animation.cancel();
+    widthAnimation.current = null;
+    if (!element || fromWidth === undefined || fromWidth === layout.width || p.reducedMotion) return;
+    const rect = element.getBoundingClientRect();
+    const sweptWidth = Math.max(fromWidth, layout.width);
+    const animation = element.animate(
+      [{ transform: `scaleX(${fromWidth / layout.width})` }, { transform: 'scaleX(1)' }],
+      { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' },
+    );
+    widthAnimation.current = { animation, x: rect.left + (rect.width - sweptWidth) / 2, width: sweptWidth, height: rect.height };
+    element.dataset.widthAnimating = 'true';
+    const finish = () => {
+      if (widthAnimation.current?.animation !== animation) return;
+      widthAnimation.current = null;
+      delete element.dataset.widthAnimating;
+    };
+    animation.addEventListener('finish', finish, { once: true });
+    animation.addEventListener('cancel', finish, { once: true });
+    return () => animation.cancel();
+  }, [layout.width, p.reducedMotion]);
   useEffect(() => {
     const element = container.current; if (!element) return;
     let previousWidth = -1;
@@ -61,6 +90,11 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
         const r = el.getBoundingClientRect(); const bottom = r.bottom - getTranslationY();
         rects.push({ x: r.x, y: 0, width: r.width, height: Math.max(0, bottom) });
       }
+      const widthSweep = widthAnimation.current;
+      if (widthSweep && dock.current) {
+        const r = dock.current.getBoundingClientRect();
+        rects.push({ x: widthSweep.x, y: r.y, width: widthSweep.width, height: widthSweep.height });
+      }
       const data = { expanded: present, rects, visibilityId: hostVisibilityId, interacting: visible && present && (editing || dragging || importing || pressing || keyboard || (pointerInside && (!!stack || more))) };
       const text = JSON.stringify(data); if (text === previous) return; previous = text;
       void request('window.sync', data).then(result => { if (!disposed && visible && present && result.applied) resumeEntrance(); }).catch(() => { /* The host owns reconnection status. No polling loop. */ });
@@ -68,7 +102,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
     const observer = new ResizeObserver(sync); container.current.querySelectorAll('[data-native-hit]').forEach(el => observer.observe(el));
     // 原生 toast 在 Dock 外渲染；必须随出现/消失更新 HWND 裁剪，否则错误提示不可见。
     const mutations = new MutationObserver(() => { document.querySelectorAll('[data-native-hit]').forEach(el => observer.observe(el)); sync(); });
-    mutations.observe(document.getElementById('root')!, { childList: true, subtree: true });
+    mutations.observe(document.getElementById('root')!, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-width-animating'] });
     sync(); window.addEventListener('resize', sync);
     const element = container.current; element.addEventListener('animationend', sync);
     return () => { disposed = true; mutations.disconnect(); observer.disconnect(); window.removeEventListener('resize', sync); element.removeEventListener('animationend', sync); };
@@ -138,7 +172,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
       <button data-native-hit aria-label={visible ? '收起面板' : '展开面板'} className="dock-handle" onClick={() => { clearTimeout(showTimer.current); clearTimeout(hideTimer.current); close(); setVisible(!visible); }}/>
     </div>
     {present && <div ref={wrap} className={`dock-wrap ${visible ? '' : 'dock-closing'}`} onPointerEnter={() => { setPointerInside(true); clearTimeout(hideTimer.current); }} onPointerMove={event => { if (!visible && (event.movementX || event.movementY)) setVisible(true); }} onPointerLeave={() => { setPointerInside(false); if (!(overlay && nativeMode) && p.autoHide && !press.current && !dragging && !importing && !keyboard && !editing) hideTimer.current = setTimeout(() => setVisible(false), 650); }}>
-      <nav aria-label="快捷启动面板" data-native-hit className={`dock glass material-${p.material} ${editing ? 'dock-editing' : ''}`} style={{ width: layout.width, height: layout.height, borderRadius: p.radius, '--dock-icon': `${layout.icon}px`, '--dock-font': `${layout.font}px` } as CSSProperties}>
+      <nav ref={dock} aria-label="快捷启动面板" data-native-hit className={`dock glass material-${p.material} ${editing ? 'dock-editing' : ''}`} style={{ width: layout.width, height: layout.height, borderRadius: p.radius, transformOrigin: 'center top', '--dock-icon': `${layout.icon}px`, '--dock-font': `${layout.font}px` } as CSSProperties}>
         <div className="dock-launchers">
         {shown.map(project => <div className={`dock-slot ${groupSource === project.id ? 'group-drag-source' : ''} ${groupTarget === project.id ? 'group-drop-target' : ''}`} data-drop-project={project.id} key={project.id} style={{ width: layout.cell }}>
           <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); showStack(project.id); }} onClick={event => { if (event.detail === 0) { if (editing) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>

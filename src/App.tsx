@@ -12,9 +12,11 @@ import { Modal } from './components/Modal';
 import { ProjectEditor } from './components/ProjectEditor';
 import { addShortcuts } from './core/shortcuts';
 import { GroupIcon } from './components/GroupIcon';
+import { BrandMark } from './components/BrandMark';
 import { mergeProjects, ungroupProject } from './core/groups';
 import { hasExternalFiles, hasProjectDrag, PROJECT_DRAG_TYPE } from './core/settingsDrop';
 import './components/settings-drop.css';
+import { version as appVersion } from '../package.json';
 
 type Page = 'overview' | 'projects' | 'appearance' | 'system';
 const PAGES: Array<{ id: Page; icon: typeof LayoutDashboard; name: string }> = [
@@ -75,7 +77,7 @@ export default function App() {
   };
   const openSettings = () => { if (overlay && nativeMode) void request('window.openSettings', { section: 'appearance' }).catch(e => notify(e.message)); else { setPage('appearance'); document.querySelector('.appearance')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } };
   const openSearch = () => { if (nativeMode) void request('window.openSettings', { section: 'search' }).catch(e => notify(e.message)); else setSearchOpen(true); };
-  if (!state) return <div className="loading-screen"><div className="brand-mark">L</div><h2>{error ? '暂时无法载入 Luma' : '正在准备 Luma'}</h2><p>{error || '正在读取项目和外观配置…'}</p>{error && <><button className="primary-button" onClick={() => location.reload()}>重新连接</button>{!nativeMode && <button className="text-button" onClick={() => { if (confirm('清除浏览器预览配置并恢复示例项目？')) resetDemoStorage(); }}>恢复预览默认配置</button>}</>}</div>;
+  if (!state) return <div className="loading-screen"><BrandMark/><h2>{error ? '暂时无法载入 Luma' : '正在准备 Luma'}</h2><p>{error || '正在读取项目和外观配置…'}</p>{error && <><button className="primary-button" onClick={() => location.reload()}>重新连接</button>{!nativeMode && <button className="text-button" onClick={() => { if (confirm('清除浏览器预览配置并恢复示例项目？')) resetDemoStorage(); }}>恢复预览默认配置</button>}</>}</div>;
   const projects = state.projects.filter(p => `${p.name} ${p.description} ${p.items.map(i => i.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   const change = (fn: (s: AppState) => AppState) => { if (error) { notify('配置存在冲突，请重新载入后编辑。'); return; } update(fn); };
   const changeGrouping = (transform: (s: AppState) => AppState, message: string) => {
@@ -143,7 +145,7 @@ export default function App() {
       <div className="cp-topbar"><span className="cp-topbar-left"><i className="cp-beacon"/>Luma · {nativeMode ? '快捷启动' : '浏览器预览'}</span><span className="cp-topbar-right">Local User</span></div>
       <div className="cp-body">
         <aside className="cp-sidebar">
-          <a className="cp-brand" href="#" onClick={e => { e.preventDefault(); setPage('overview'); }}><span className="cp-brand-mark">L</span><span className="cp-brand-name">LUMA</span></a>
+          <a className="cp-brand" href="#" onClick={e => { e.preventDefault(); setPage('overview'); }}><BrandMark/><span className="cp-brand-name">LUMA</span></a>
           <div className="cp-nav-caption">常规</div>
           <nav className="cp-nav" aria-label="驾驶舱导航">{PAGES.slice(0, 3).map(tab => <button key={tab.id} className={page === tab.id ? 'active' : ''} onClick={() => setPage(tab.id)}><tab.icon size={15}/>{tab.name}{tab.id === 'projects' && <span className="cp-nav-count">{state.projects.length}</span>}{page === tab.id && <i/>}</button>)}</nav>
           <div className="cp-nav-caption">系统</div>
@@ -216,6 +218,11 @@ export default function App() {
 
           {page === 'system' && <>
             <SystemIntegration/>
+            <section className="cp-card">
+              <header className="cp-card-head"><strong>关于 Luma</strong><span className="cp-badge">v{appVersion} · 测试版</span></header>
+              <div className="cp-kv"><span>升级方式</span><strong>安装版覆盖升级 · 便携版完整解压</strong></div>
+              <div className="info-box"><Download size={18}/><p>升级保留项目与外观配置。建议先导出配置，再退出旧版本。新版下载与更新说明见项目 GitHub Releases。</p></div>
+            </section>
             <section className="cp-card">
               <header className="cp-card-head"><strong>内核连接</strong><span className="cp-health"><span className={`status-dot ${nativeMode ? 'ok' : 'demo'}`}/>{nativeMode ? '已连接原生内核' : '浏览器预览模式'}</span></header>
               <div className="cp-kv"><span>全局搜索快捷键</span><strong>Ctrl + Alt + Space</strong></div>

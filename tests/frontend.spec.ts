@@ -42,8 +42,9 @@ test('project editing persists and search finds the new item', async ({ page }) 
   await expect(page.locator('.search-results button')).toHaveCount(1);
 });
 test('appearance, overflow, theme and persisted settings', async ({ page }) => {
+  await page.setViewportSize({ width: 340, height: 844 });
   await openPage(page, '外观');
-  await page.getByLabel('面板宽度', { exact: true }).fill('320');
+  await page.getByLabel('初始宽度', { exact: true }).fill('320');
   await expect(page.getByRole('button', { name: '更多项目', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '更多项目', exact: true }).click();
   await expect(page.getByRole('region', { name: '更多项目列表' })).toBeVisible();
@@ -54,7 +55,7 @@ test('appearance, overflow, theme and persisted settings', async ({ page }) => {
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).color)).toBe('rgb(242, 240, 234)');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('luma.state.v1') || '{}').preferences?.width)).toBe(320);
   await page.goto('/?section=appearance');
-  await expect(page.getByLabel('面板宽度', { exact: true })).toHaveValue('320');
+  await expect(page.getByLabel('初始宽度', { exact: true })).toHaveValue('320');
 });
 test('native mode fails explicitly instead of falling back to demo', async ({ page }) => {
   await page.goto('/?view=dock&mode=native');

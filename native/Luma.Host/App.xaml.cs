@@ -1,4 +1,6 @@
 using System.IO;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using Luma.Host.Bridge;
@@ -68,6 +70,11 @@ public partial class App : Application, IWindowHost
             Shutdown();
             return;
         }
+        if (!EnsureRuntimePrerequisites())
+        {
+            Shutdown();
+            return;
+        }
         Log.Init(DataDirectory);
         _singleInstance = new Mutex(true, SingleInstanceMutexName + InstanceSuffix, out var isFirst);
         if (!isFirst)
@@ -119,6 +126,74 @@ public partial class App : Application, IWindowHost
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () => await InitializeAsync()));
     }
 
+    private static bool EnsureRuntimePrerequisites()
+    {
+        if (!RuntimePreflight.IsSupportedWindows(Environment.OSVersion.Version))
+        {
+            MessageBox.Show("此版本需要 Windows 10 22H2（内部版本 19045）或更高版本。", "Luma 无法启动",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (!RuntimePreflight.IsSupportedArchitecture(RuntimeInformation.ProcessArchitecture))
+        {
+            MessageBox.Show("此交付包仅包含 x64 程序。请使用 x64 Windows，或在 Windows on ARM 的 x64 模拟环境中运行。",
+                "Luma 无法启动", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+
+        var registry = new WindowsRegistryValueReader();
+        bool IsInstalled() => RuntimePreflight.IsWebView2Installed(registry, Environment.Is64BitOperatingSystem);
+        if (IsInstalled()) return true;
+
+        var bootstrapper = Path.Combine(AppContext.BaseDirectory, RuntimePreflight.BootstrapperFileName);
+        if (!File.Exists(bootstrapper))
+        {
+            MessageBox.Show("缺少 Microsoft Edge WebView2 Runtime，且交付目录中没有安装程序。请重新下载完整的 Luma 安装包。",
+                "Luma 依赖缺失", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (!RuntimePreflight.HasTrustedMicrosoftSignature(bootstrapper))
+        {
+            MessageBox.Show("WebView2 安装程序的 Microsoft 数字签名无效。为保护设备，Luma 不会运行此文件；请重新下载完整的 Luma 安装包。",
+                "Luma 依赖校验失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (MessageBox.Show("Luma 需要 Microsoft Edge WebView2 Runtime。是否现在按当前用户安装？\n\n安装程序由 Microsoft 签名，需要联网，不会请求管理员权限。",
+                "安装 Luma 运行依赖", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes)
+            return false;
+
+        int LaunchInstaller()
+        {
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo(bootstrapper, "/silent /install")
+                {
+                    UseShellExecute = false,
+                    WorkingDirectory = AppContext.BaseDirectory
+                });
+                if (process is null) return -1;
+                if (process.WaitForExit((int)TimeSpan.FromMinutes(10).TotalMilliseconds)) return process.ExitCode;
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(5000);
+                }
+                catch { /* 已超时；不保留第二个并行安装进程。 */ }
+                return RuntimePreflight.InstallTimedOut;
+            }
+            catch
+            {
+                return -1;
+            }
+        }
+
+        var result = RuntimePreflight.InstallWithRetry(LaunchInstaller, IsInstalled);
+        if (result.Succeeded) return true;
+        MessageBox.Show($"WebView2 Runtime 安装失败（退出代码：{string.Join("、", result.ExitCodes)}）。请检查网络连接后重新启动 Luma 重试。",
+            "Luma 依赖安装失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        return false;
+    }
+
     private async Task InitializeAsync()
     {
         try
@@ -138,6 +213,13 @@ public partial class App : Application, IWindowHost
         var primary = _monitors!.Primary;
         var dockHeight = Math.Min(640.0, primary.WorkArea.Height);
         _dock = new DockWindow(_router!, _backdrop!, _environment, primary.WorkArea.Width, dockHeight);
+        _dock.RendererReloading += () =>
+        {
+            Log.Warn($"浮岛渲染器恢复前结束当前可见性会话 visibilityId={_dockVisibility.VisibilityId}");
+            _dockVisibility.RequestImmediateHide();
+            _router!.BroadcastVisibility(false, _dockVisibility.VisibilityId);
+            CompleteDockHide();
+        };
         _dock.LayoutReady += () =>
         {
             if (_pendingDockShow || _args.Contains("--show-dock")) { _pendingDockShow = false; _edge?.TriggerFromTray(); }
@@ -181,6 +263,7 @@ public partial class App : Application, IWindowHost
     private void OnShowDock(EdgeActivation.HotspotLayout layout)
     {
         Log.Info($"原生唤出 phase={_dockVisibility.Phase} synced={_dock?.HasSynced} monitor=0x{layout.Monitor:X}");
+        _dock?.ResumeForActivation();
         if (_dock?.HasSynced != true) { _pendingDockShow = true; _edge?.NotifyDockHidden(); return; }
         _dockCloseTimer.Stop();
         _dockVisibility.RequestShow();
@@ -376,7 +459,8 @@ public partial class App : Application, IWindowHost
 
         _tray = new Hardcodet.Wpf.TaskbarNotification.TaskbarIcon
         {
-            ToolTipText = "Luma 项目快捷启动",
+            ToolTipText = Environment.GetEnvironmentVariable("LUMA_TEST_SESSION") == "soak"
+                ? "Luma 后台稳定性测试（独立配置）" : "Luma 项目快捷启动",
             ContextMenu = menu,
             IconSource = System.Windows.Media.Imaging.BitmapFrame.Create(
                 new Uri("pack://application:,,,/Assets/luma.ico")),
