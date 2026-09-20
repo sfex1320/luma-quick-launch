@@ -1,4 +1,4 @@
-param([string]$Version = '0.1.0')
+param([string]$Version = '0.2.0')
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') { throw 'Invalid release version.' }
 $root = Split-Path $PSScriptRoot -Parent
@@ -86,6 +86,10 @@ try {
         $evidence = $logText.Substring($jsonStart) | ConvertFrom-Json
         if ($evidence.result -ne 'passed') { throw 'Native integration did not report success.' }
         $evidence | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $buildDir 'native-smoke.json') -Encoding UTF8
+        cmd.exe /d /c "node native/tests/native-integration-smoke.mjs 2>&1" | Tee-Object -FilePath (Join-Path $buildDir 'integration-smoke.log')
+        if ($LASTEXITCODE -ne 0) { throw 'Real desktop/startup integration failed; do not publish.' }
+        cmd.exe /d /c "node native/tests/native-lifecycle-smoke.mjs 2>&1" | Tee-Object -FilePath (Join-Path $buildDir 'lifecycle-smoke.log')
+        if ($LASTEXITCODE -ne 0) { throw 'Native startup/shutdown lifecycle failed; do not publish.' }
     } finally {
         $env:LUMA_TEST_EXE = $previousTestExe
         # Only close Explorer windows opened under this run's exact temporary data root.

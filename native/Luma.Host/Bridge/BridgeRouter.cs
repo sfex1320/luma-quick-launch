@@ -103,8 +103,9 @@ public sealed class BridgeRouter
     private readonly FolderService _folders;
     private readonly ShellIconService _icons;
     private readonly ShortcutImportService _imports = new();
+    private readonly SystemIntegrationService _integration;
 
-    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null)
+    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null)
     {
         _store = store;
         _launcher = launcher;
@@ -114,6 +115,7 @@ public sealed class BridgeRouter
         _search = new SearchService(store);
         _folders = folders ?? new FolderService(store);
         _icons = icons ?? new ShellIconService(store);
+        _integration = integration ?? new SystemIntegrationService();
     }
 
     public IReadOnlyList<IHostClient> Clients
@@ -169,6 +171,11 @@ public sealed class BridgeRouter
 
             switch (method)
             {
+                case "system.getIntegration":
+                case "system.setAutoStart":
+                case "system.createDesktopShortcut":
+                    await HandleSystemIntegration(source, id, method, parameters);
+                    return;
                 case "app.getState":
                     if (_store.LoadError is { } loadError) RespondError(source, id, ProtocolErrors.IoError, loadError);
                     else RespondOk(source, id, _store.Current);
@@ -236,6 +243,10 @@ public sealed class BridgeRouter
         {
             RespondError(source, id, ex.Code, ex.Message);
         }
+        catch (SystemIntegrationException ex)
+        {
+            RespondError(source, id, ex.Code, ex.Message);
+        }
         catch (JsonException)
         {
             RespondError(source, id, ProtocolErrors.InvalidRequest);
@@ -249,6 +260,23 @@ public sealed class BridgeRouter
             Log.Error($"处理消息异常 method 路径 id={id}: {ex}");
             RespondError(source, id, ProtocolErrors.InternalError);
         }
+    }
+
+    private async Task HandleSystemIntegration(IHostClient source, string id, string method, JsonElement parameters)
+    {
+        var setting = method == "system.setAutoStart";
+        if (parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != (setting ? 1 : 0) ||
+            (setting && (!parameters.TryGetProperty("enabled", out var value) || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+
+        // Shell shortcut COM stays on the UI STA. No unbounded background COM work.
+        var result = await _sync.PostAsync(() => Task.FromResult(method switch
+        {
+            "system.setAutoStart" => _integration.SetAutoStart(parameters.GetProperty("enabled").GetBoolean()),
+            "system.createDesktopShortcut" => _integration.CreateDesktopShortcut(),
+            _ => _integration.GetIntegration(),
+        }));
+        RespondOk(source, id, result);
     }
 
     private async Task HandleGetIcon(IHostClient source, string id, JsonElement parameters)

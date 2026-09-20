@@ -23,6 +23,7 @@ public partial class App : Application, IWindowHost
     private EventWaitHandle? _activateSignal;
     private EventWaitHandle? _settingsSignal;
     private EventWaitHandle? _searchSignal;
+    private InstanceShutdownSignal? _shutdownSignal;
     private readonly DockVisibilityState _dockVisibility = new();
     private readonly System.Windows.Threading.DispatcherTimer _dockCloseTimer = new()
     { Interval = TimeSpan.FromMilliseconds(DockVisibilityState.CloseTimeoutMilliseconds) };
@@ -60,10 +61,18 @@ public partial class App : Application, IWindowHost
     {
         base.OnStartup(e);
         _args = e.Args;
+        // Installer/uninstaller control does not initialize WebView, state, tray or activation.
+        if (_args.Contains("--shutdown"))
+        {
+            InstanceShutdownSignal.TryRequest(Environment.ProcessPath!);
+            Shutdown();
+            return;
+        }
         Log.Init(DataDirectory);
         _singleInstance = new Mutex(true, SingleInstanceMutexName + InstanceSuffix, out var isFirst);
         if (!isFirst)
         {
+            if (_args.Contains("--startup")) { Shutdown(); return; }
             Log.Info("已有 Luma 实例运行，发送激活信号后退出");
             try
             {
@@ -78,6 +87,7 @@ public partial class App : Application, IWindowHost
         _activateSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName + InstanceSuffix);
         _settingsSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName + InstanceSuffix + ".Settings");
         _searchSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName + InstanceSuffix + ".Search");
+        _shutdownSignal = new InstanceShutdownSignal(Environment.ProcessPath!);
         _activateListener = new Thread(ListenActivation) { IsBackground = true, Name = "LumaActivateListener" };
         _activateListener.Start();
 
@@ -212,16 +222,17 @@ public partial class App : Application, IWindowHost
 
     private void ListenActivation()
     {
-        var signals = new WaitHandle[] { _activateSignal!, _settingsSignal!, _searchSignal!, _stopListener };
+        var signals = new WaitHandle[] { _activateSignal!, _settingsSignal!, _searchSignal!, _shutdownSignal!.Handle, _stopListener };
         while (true)
         {
             try
             {
                 var index = WaitHandle.WaitAny(signals);
-                if (index == 3) break;
+                if (index == 4) break;
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (index == 2) OpenSearch();
+                    if (index == 3) Shutdown();
+                    else if (index == 2) OpenSearch();
                     else if (index == 1) ((IWindowHost)this).OpenSettings("projects");
                     else _edge?.TriggerFromTray();
                 });
@@ -389,6 +400,7 @@ public partial class App : Application, IWindowHost
         _activateSignal?.Dispose();
         _settingsSignal?.Dispose();
         _searchSignal?.Dispose();
+        _shutdownSignal?.Dispose();
         _stopListener.Dispose();
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();

@@ -69,6 +69,7 @@ try {
   check('首次启动唤出等待真实前端首帧');
   const snapshot=inspect(); const nativeDock=snapshot.find(w=>w.Title==='Luma Dock');
   expect(nativeDock.Backdrop).toBe(1);
+  expect(nativeDock.Topmost).toBe(true);
   expect(nativeDock.RegionType).toBe(3);
   expect(nativeDock.Region.Right-nativeDock.Region.Left).toBeLessThan(nativeDock.Bounds.Right-nativeDock.Bounds.Left);
   const metrics=await dock.evaluate(()=>({dpr:devicePixelRatio,width:innerWidth,rect:document.querySelector('.dock').getBoundingClientRect().toJSON()}));

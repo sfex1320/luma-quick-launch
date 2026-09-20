@@ -1,4 +1,67 @@
 {
+  "system.getIntegration": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "autoStart": {
+        "type": "boolean"
+      },
+      "autoStartHere": {
+        "type": "boolean"
+      },
+      "desktopShortcut": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "autoStart",
+      "autoStartHere",
+      "desktopShortcut"
+    ],
+    "additionalProperties": false
+  },
+  "system.setAutoStart": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "autoStart": {
+        "type": "boolean"
+      },
+      "autoStartHere": {
+        "type": "boolean"
+      },
+      "desktopShortcut": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "autoStart",
+      "autoStartHere",
+      "desktopShortcut"
+    ],
+    "additionalProperties": false
+  },
+  "system.createDesktopShortcut": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "autoStart": {
+        "type": "boolean"
+      },
+      "autoStartHere": {
+        "type": "boolean"
+      },
+      "desktopShortcut": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "autoStart",
+      "autoStartHere",
+      "desktopShortcut"
+    ],
+    "additionalProperties": false
+  },
   "app.getState": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",

@@ -7,6 +7,7 @@ import { useWorkspace } from './useWorkspace';
 import { CrystalFolder } from './components/CrystalFolder';
 import { Dock } from './components/Dock';
 import { Appearance } from './components/Appearance';
+import { SystemIntegration } from './components/SystemIntegration';
 import { Modal } from './components/Modal';
 import { ProjectEditor } from './components/ProjectEditor';
 import { addShortcuts } from './core/shortcuts';
@@ -214,6 +215,7 @@ export default function App() {
           {page === 'appearance' && <Appearance value={state.preferences} preview={dock} onChange={preferences => change(s => ({ ...s, preferences }))}/>}
 
           {page === 'system' && <>
+            <SystemIntegration/>
             <section className="cp-card">
               <header className="cp-card-head"><strong>内核连接</strong><span className="cp-health"><span className={`status-dot ${nativeMode ? 'ok' : 'demo'}`}/>{nativeMode ? '已连接原生内核' : '浏览器预览模式'}</span></header>
               <div className="cp-kv"><span>全局搜索快捷键</span><strong>Ctrl + Alt + Space</strong></div>

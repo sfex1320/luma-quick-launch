@@ -53,6 +53,8 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
   }
   let result: unknown;
   switch (method) {
+    case 'system.getIntegration': case 'system.setAutoStart': case 'system.createDesktopShortcut':
+      throw new Error('请在 Luma 桌面程序中管理开机启动和桌面快捷方式。');
     case 'app.getState': {
       const stored = localStorage.getItem('luma.state.v1');
       if (stored) { try { demoState = StateSchema.parse(JSON.parse(stored)); } catch { throw new Error('预览配置损坏。请在设置中恢复默认配置。'); } }

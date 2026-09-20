@@ -10,6 +10,8 @@
 
 GitHub 仓库：<https://github.com/sfex1320/luma-quick-launch>。Windows x64 便携包见 [Releases](https://github.com/sfex1320/luma-quick-launch/releases)。完整解压后运行 `Start-Luma.cmd` 或 `Luma.exe`，不要只复制 exe。需要 Microsoft Edge WebView2 Runtime，无需另装 Node.js 或 .NET。
 
+**v0.2.0 提供两种版本**：便携 ZIP 与安装 EXE。安装版为当前用户安装并创建桌面/开始菜单入口，卸载保留配置。两种版本都可在“设置与备份 → 启动与桌面”创建桌面快捷方式、开启或关闭开机启动。默认不开启，开启后登录 Windows 时在托盘待命。浮岛位于普通窗口上方，不申请管理员权限；便携目录移动后需重新创建系统入口。
+
 开发者执行 `npm ci` 后，使用 `powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1` 构建、测试并生成 ZIP 与 SHA256。发布流程见 [发布与打包](docs/发布与打包.md)。本机测试截图、原始日志与配置不上传 Git；报告中的本地证据路径仅供原工作区查阅。
 
 ## 运行原生内核
@@ -79,7 +81,7 @@ npm run test:e2e
 
 原生虚拟域加载 `/index.html?view=dock&mode=native` 作为浮岛；管理窗加载 `/index.html?mode=native`。必须显式指定 index.html。通过 WebView2 消息桥连接。宿主实现边缘热区、区域穿透、实际像素比例换算、托盘、Shell 启动和磁盘存储。真实桌面磨砂尚需独立、受限区域的合成实现，不允许重新启用整窗 DWM 背景。
 
-当前支持快捷项拖叠与受限的已有窗口复用；不提供实时文件树或开机启动服务。复用边界见第六轮修复报告，性能实测数据见 [docs/perf-report.md](docs/perf-report.md)。
+当前支持快捷项拖叠、受限的已有窗口复用和当前用户开机启动；不提供实时文件树。复用边界见第六轮修复报告，性能实测数据见 [docs/perf-report.md](docs/perf-report.md)。
 
 ## 新增使用方式（2026-09-19）
 

@@ -1,0 +1,85 @@
+// Real Windows HKCU/desktop + real published WebView. Restore user entries in finally.
+import { chromium, expect } from '@playwright/test';
+import { spawn, execFileSync } from 'node:child_process';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { randomUUID } from 'node:crypto';
+import { assertExecutableIdle } from './assert-executable-idle.mjs';
+const root = path.resolve(import.meta.dirname, '../..');
+const exe = path.resolve(process.env.LUMA_TEST_EXE ?? path.join(root, 'APP/native/Luma/Luma.exe'));
+assertExecutableIdle(exe);
+const data = path.join(tmpdir(), `luma-integration-smoke-${randomUUID()}`);
+await mkdir(data, { recursive: true });
+await writeFile(path.join(data, 'state.json'), await readFile(path.join(root, 'docs/contracts/empty-state.json')));
+const server = net.createServer(); await new Promise(r => server.listen(0, '127.0.0.1', r));
+const port = server.address().port; await new Promise(r => server.close(r));
+const env = { ...process.env, LUMA_DATA_DIRECTORY: data, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` };
+const evidence = { date: new Date().toISOString(), exe, data, checks: [] };
+const probe = action => JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'native/tests/SystemIntegrationProbe.ps1'), '-Action', action, '-BackupDirectory', data], { encoding: 'utf8', windowsHide: true }));
+const activate = args => new Promise((resolve, reject) => {
+  const proc = spawn(exe, args, { env, windowsHide: true, stdio: 'ignore' });
+  proc.once('error', reject); proc.once('exit', code => code === 0 ? resolve() : reject(new Error(`Exit ${code}`)));
+});
+let child, browser, prepared = false;
+try {
+  probe('Prepare'); prepared = true;
+  child = spawn(exe, ['--settings'], { env, windowsHide: true, stdio: 'ignore' });
+  await expect.poll(async () => { try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; } }, { timeout: 20000 }).toBe(true);
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { noDefaults: true });
+  const pages = () => browser.contexts().flatMap(context => context.pages());
+  await expect.poll(() => pages().filter(page => page.url().includes('luma.local')).length).toBe(2);
+  const settings = pages().find(page => !page.url().includes('view=dock'));
+  const dock = pages().find(page => page.url().includes('view=dock'));
+  await settings.getByRole('button', { name: '设置与备份', exact: true }).click();
+  const toggle = settings.getByRole('checkbox', { name: '开机启动', exact: true });
+  await expect(toggle).toBeEnabled(); await expect(toggle).not.toBeChecked();
+  expect(probe('Inspect').Run.Exists).toBe(false);
+  evidence.checks.push('Fresh startup defaults off; opening settings creates no Run value');
+  await toggle.click(); await expect(toggle).toBeChecked();
+  const registered = probe('Inspect');
+  expect(registered.Run.Value).toBe(`"${exe}" --startup`);
+  expect(registered.Run.Kind).toBe('String');
+  evidence.checks.push('UI enables actual HKCU Run for this executable with quoted path');
+  probe('DisableStartup');
+  await settings.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(toggle).not.toBeChecked();
+  await toggle.click(); await expect(toggle).toBeChecked();
+  expect(probe('Inspect').Approved.Exists).toBe(false);
+  evidence.checks.push('Windows-disabled startup is reflected and explicit re-enable clears its marker');
+  await toggle.click(); await expect(toggle).not.toBeChecked();
+  expect(probe('Inspect').Run.Exists).toBe(false);
+  evidence.checks.push('UI disables actual current-user Run entry');
+  await settings.getByRole('button', { name: '创建桌面快捷方式', exact: true }).click();
+  await expect(settings.getByText('桌面快捷方式已创建', { exact: true })).toBeVisible();
+  const desktop = probe('Inspect').Desktop;
+  expect(desktop.Target.toLowerCase()).toBe(exe.toLowerCase());
+  expect(desktop.Arguments).toBe('--settings');
+  expect(desktop.WorkingDirectory.toLowerCase()).toBe(path.dirname(exe).toLowerCase());
+  evidence.checks.push('Real desktop .lnk targets this exe with settings args and correct working directory');
+  await settings.getByRole('button', { name: '外观', exact: true }).click();
+  await settings.getByRole('button', { name: '深色模式', exact: true }).click();
+  await settings.getByRole('button', { name: '设置与备份', exact: true }).click();
+  await expect(settings.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await settings.getByRole('region', { name: '启动与桌面' }).scrollIntoViewIfNeeded();
+  await settings.screenshot({ path: path.join(data, 'system-dark.png') });
+  await activate(['--startup']);
+  await expect(dock.locator('.dock')).toHaveCount(0);
+  evidence.checks.push('Repeated --startup leaves dock hidden instead of activating it');
+  const linkCommand = 'Start-Process -FilePath $env:LUMA_TEST_LINK -WindowStyle Hidden';
+  execFileSync('powershell.exe', ['-NoProfile', '-Command', linkCommand], { env: { ...env, LUMA_TEST_LINK: desktop.Path }, windowsHide: true });
+  await expect(settings.getByRole('heading', { name: '快捷项与堆叠', exact: true })).toBeVisible();
+  evidence.checks.push('Launching real desktop shortcut reuses current instance and opens settings');
+  await activate(['--shutdown']);
+  await expect.poll(() => child.exitCode).toBe(0);
+  evidence.checks.push('Exact executable --shutdown exits host gracefully');
+  evidence.result = 'passed';
+} catch (error) { evidence.result = 'failed'; evidence.error = String(error.stack ?? error); throw error; }
+finally {
+  if (browser) await browser.close().catch(() => {});
+  if (child && child.exitCode === null) child.kill();
+  if (prepared || await readFile(path.join(data, 'system-backup.json')).then(() => true, () => false)) { probe('Restore'); evidence.userEntriesRestored = true; }
+  await writeFile(path.join(data, 'result.json'), JSON.stringify(evidence, null, 2));
+  console.log(JSON.stringify(evidence, null, 2));
+}

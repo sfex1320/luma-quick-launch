@@ -33,7 +33,12 @@ export const IconResponseSchema = z.object({ dataUrl: z.string().max(350000).ref
     return data.length >= 33 && data.startsWith('\x89PNG\r\n\x1a\n') && data.slice(12, 16) === 'IHDR';
   } catch { return false; }
 }).nullable() });
+export const IntegrationSchema = z.object({ autoStart: z.boolean(), autoStartHere: z.boolean(), desktopShortcut: z.boolean() });
+export type IntegrationStatus = z.infer<typeof IntegrationSchema>;
 export interface Methods {
+  'system.getIntegration': { params: Record<string, never>; result: IntegrationStatus };
+  'system.setAutoStart': { params: { enabled: boolean }; result: IntegrationStatus };
+  'system.createDesktopShortcut': { params: Record<string, never>; result: IntegrationStatus };
   'app.getState': { params: Record<string, never>; result: AppState };
   'app.saveState': { params: { state: AppState; expectedRevision: number }; result: AppState };
   'shell.openItem': { params: { projectId: string; itemId: string }; result: { accepted: boolean } };
@@ -52,6 +57,9 @@ export interface Methods {
 export type Method = keyof Methods;
 export type HostEvent = { event: 'app.stateChanged'; data: AppState } | { event: 'window.visibility'; data: { visible: boolean; visibilityId?: number } };
 export const resultSchemas = {
+  'system.getIntegration': IntegrationSchema,
+  'system.setAutoStart': IntegrationSchema,
+  'system.createDesktopShortcut': IntegrationSchema,
   'app.getState': StateSchema,
   'app.saveState': StateSchema,
   'shell.openItem': z.object({ accepted: z.boolean() }),
