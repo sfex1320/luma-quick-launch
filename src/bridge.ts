@@ -71,6 +71,7 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
     case 'shell.pickFolder': throw new Error('浏览器无法读取完整 Windows 路径，请手动填写；原生内核接入后可直接选择。');
     case 'shell.pickFiles': case 'shell.resolveDrop': throw new Error('请在 Luma 桌面程序中选择或拖入文件、软件和文件夹。');
     case 'folder.list': case 'folder.open': throw new Error('请在 Luma 桌面程序中浏览真实目录；浏览器预览不读取本机文件。');
+    case 'project.detectTest': case 'project.runTest': throw new Error('请在 Luma 桌面程序中识别并运行项目测试。');
     case 'search.query': {
       const { query, scope } = params as Methods['search.query']['params'];
       result = { results: scope === 'settings' || scope === 'content' ? [] : demoState.projects.flatMap(p => p.items.filter(i => `${p.name} ${i.name} ${i.path}`.toLowerCase().includes(query.toLowerCase())).map(i => ({ id: `${p.id}/${i.id}`, title: i.name, subtitle: `${p.name} · ${i.path}`, kind: i.kind, source: 'shortcut' }))).slice(0, 60), indexAvailable: false, note: '浏览器仅预览已保存入口；桌面程序支持 Windows 索引和设置搜索。' }; break;

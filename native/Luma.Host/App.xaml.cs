@@ -237,7 +237,7 @@ public partial class App : Application, IWindowHost
             if (_dockVisibility.CloseExpired(Environment.TickCount64))
             {
                 _dockCloseTimer.Stop();
-                if (_dock.IsInteracting || EdgeActivation.HasPressedInput()) _edge?.CancelClose();
+                if (EdgeActivation.InputKeepsDockOpen(closing: true, _dock.IsInteracting, EdgeActivation.HasPressedInput())) _edge?.CancelClose();
                 // Fullscreen avoidance may refuse reversal. Never leave a Closing
                 // dock stranded after stopping its only fallback timer.
                 if (_dockVisibility.Phase == DockVisibilityPhase.Closing)

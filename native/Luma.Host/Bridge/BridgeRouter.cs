@@ -101,11 +101,12 @@ public sealed class BridgeRouter
     private readonly ISyncContext _sync;
     private readonly SearchService _search;
     private readonly FolderService _folders;
+    private readonly ProjectTestService _projectTests;
     private readonly ShellIconService _icons;
     private readonly ShortcutImportService _imports = new();
     private readonly SystemIntegrationService _integration;
 
-    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null)
+    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null)
     {
         _store = store;
         _launcher = launcher;
@@ -114,6 +115,7 @@ public sealed class BridgeRouter
         _sync = sync;
         _search = new SearchService(store);
         _folders = folders ?? new FolderService(store);
+        _projectTests = projectTests ?? new ProjectTestService(_folders);
         _icons = icons ?? new ShellIconService(store);
         _integration = integration ?? new SystemIntegrationService();
     }
@@ -133,6 +135,7 @@ public sealed class BridgeRouter
     {
         lock (_gate) _clients.Remove(client);
         _folders.Detach(client.ClientId);
+        _projectTests.Detach(client.ClientId);
         client.Detach();
         Log.Info($"桥接客户端断开：{client.ClientId}（剩余 {Clients.Count} 个）");
     }
@@ -192,6 +195,10 @@ public sealed class BridgeRouter
                 case "folder.list":
                 case "folder.open":
                     await HandleFolder(source, id, method, parameters);
+                    return;
+                case "project.detectTest":
+                case "project.runTest":
+                    await HandleProjectTest(source, id, method, parameters);
                     return;
                 case "shell.pickFolder":
                     await HandlePickFolder(source, id);
@@ -260,6 +267,22 @@ public sealed class BridgeRouter
             Log.Error($"处理消息异常 method 路径 id={id}: {ex}");
             RespondError(source, id, ProtocolErrors.InternalError);
         }
+    }
+
+    private async Task HandleProjectTest(IHostClient source, string id, string method, JsonElement parameters)
+    {
+        var tokenName = method == "project.detectTest" ? "folderId" : "taskId";
+        if (parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != 3 ||
+            parameters.EnumerateObject().Any(p => p.Name is not ("projectId" or "itemId") && p.Name != tokenName) ||
+            !parameters.TryGetProperty("projectId", out var project) || project.ValueKind != JsonValueKind.String ||
+            !parameters.TryGetProperty("itemId", out var item) || item.ValueKind != JsonValueKind.String ||
+            !parameters.TryGetProperty(tokenName, out var token) || token.ValueKind != JsonValueKind.String ||
+            new[] { project.GetString(), item.GetString(), token.GetString() }.Any(s => string.IsNullOrWhiteSpace(s) || s.Length > 200))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        if (method == "project.detectTest")
+            RespondOk(source, id, new { task = await _projectTests.DetectAsync(source.ClientId, project.GetString()!, item.GetString()!, token.GetString()!) });
+        else
+            RespondOk(source, id, new { opened = await _projectTests.RunAsync(source.ClientId, project.GetString()!, item.GetString()!, token.GetString()!) });
     }
 
     private async Task HandleSystemIntegration(IHostClient source, string id, string method, JsonElement parameters)

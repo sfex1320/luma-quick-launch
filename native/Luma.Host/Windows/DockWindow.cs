@@ -355,7 +355,7 @@ internal sealed class DockMessageQueue
                 method = name.GetString();
         }
         catch (System.Text.Json.JsonException) { /* Router owns validation and error responses. */ }
-        if (method is "folder.list" or "folder.open" or "shell.getIcon" or "shell.openItem" or "search.open")
+        if (method is "folder.list" or "folder.open" or "shell.getIcon" or "shell.openItem" or "search.open" or "project.detectTest" or "project.runTest")
         {
             // Never hold the layout queue across slow directory, icon or window-reuse IO.
             // The router still validates the request; each service bounds its workers.

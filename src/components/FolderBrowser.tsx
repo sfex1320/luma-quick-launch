@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { ArrowLeft, ChevronRight, FolderOpen, RefreshCw } from 'lucide-react';
-import type { Color, FolderListing, LaunchItem } from '../contracts';
+import { ArrowLeft, ChevronRight, FolderOpen, RefreshCw, Terminal } from 'lucide-react';
+import type { Color, FolderListing, LaunchItem, ProjectTestTask } from '../contracts';
 import { request } from '../bridge';
 import { ItemIcon } from './ItemIcon';
 import './folder-browser.css';
@@ -8,15 +8,17 @@ import './folder-browser.css';
 interface Props {
   projectId: string; item: LaunchItem; color: Color; highlight: string | null;
   onOpen: (entryId: string) => void; onBackToGroup?: () => void;
+  onRunTest: (taskId: string) => void; runningTest: boolean;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void;
 }
 
-export function FolderBrowser({ projectId, item, color, highlight, onOpen, onBackToGroup, ...gesture }: Props) {
+export function FolderBrowser({ projectId, item, color, highlight, onOpen, onRunTest, runningTest, onBackToGroup, ...gesture }: Props) {
   const [folderId, setFolderId] = useState<string>();
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [reload, setReload] = useState(0);
   const generation = useRef(0);
+  const [testTask, setTestTask] = useState<ProjectTestTask | null>(null), [testError, setTestError] = useState('');
   useEffect(() => {
     const current = ++generation.current;
     setLoading(true); setError(''); setListing(null);
@@ -26,6 +28,14 @@ export function FolderBrowser({ projectId, item, color, highlight, onOpen, onBac
       .finally(() => { if (generation.current === current) setLoading(false); });
     return () => { generation.current++; };
   }, [projectId, item.id, item.path, folderId, reload]);
+  useEffect(() => {
+    let cancelled = false;
+    setTestTask(null); setTestError('');
+    if (listing) void request('project.detectTest', { projectId, itemId: item.id, folderId: listing.folderId })
+      .then(result => { if (!cancelled) setTestTask(result.task); })
+      .catch(reason => { if (!cancelled) setTestError((reason as Error).message); });
+    return () => { cancelled = true; };
+  }, [listing, projectId, item.id]);
   const back = () => { if (listing?.parentId) setFolderId(listing.parentId); else onBackToGroup?.(); };
   return <div className="folder-browser">
     <div className="folder-browser-path">
@@ -49,7 +59,18 @@ export function FolderBrowser({ projectId, item, color, highlight, onOpen, onBac
         {!listing.entries.length && <p className="folder-browser-message">此目录为空</p>}
       </div>
       {listing.truncated && <p className="directory-limit">当前显示前 200 项，可打开目录查看全部内容。</p>}
-      <footer><button data-item-id={listing.folderId} data-project-id={projectId} data-folder-item-id={item.id} className={`text-button directory-open-current ${highlight === listing.folderId ? 'selected' : ''}`} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(listing.folderId); }}><FolderOpen size={14}/>打开当前目录</button><span>{listing.entries.length} 项 · 按住滑选，松手打开</span></footer>
+      <footer className="directory-footer"><div className="directory-footer-actions">
+        <button data-item-id={listing.folderId} data-project-id={projectId} data-folder-item-id={item.id} className={`text-button directory-open-current ${highlight === listing.folderId ? 'selected' : ''}`} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(listing.folderId); }}><FolderOpen size={14}/>打开当前目录</button>
+        {testTask && <button data-item-id={testTask.id} data-project-id={projectId} data-folder-item-id={item.id} data-test-task-id={testTask.id}
+          className={`text-button directory-open-current directory-run-test ${highlight === testTask.id ? 'selected' : ''}`}
+          title={`${testTask.label} · ${testTask.command}`} disabled={runningTest}
+          {...gesture} onLostPointerCapture={gesture.onPointerCancel}
+          onClick={event => { if (event.detail === 0) onRunTest(testTask.id); }}>
+          <Terminal size={14}/>{runningTest ? '正在打开终端…' : '运行测试'}
+        </button>}
+      </div><span>{listing.entries.length} 项 · 按住滑选，松手打开</span></footer>
+      {testTask && <p className="directory-test-command" title={testTask.command}>{testTask.command} · 在终端运行</p>}
+      {testError && <p className="directory-test-error" role="status">测试识别：{testError}</p>}
     </>}
   </div>;
 }

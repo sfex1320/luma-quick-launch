@@ -26,8 +26,11 @@ async function attachHost(page: Page, seed = initial, listing = root) {
       else if (req.method === 'app.saveState') { state = { ...req.params.state, revision: state.revision + 1 }; host.__hostState = state; result = state; }
       else if (req.method === 'window.sync') result = { applied: true };
       else if (req.method === 'folder.list') result = req.params.folderId === 'token-design' ? child : root;
+      else if (req.method === 'project.detectTest') result = { task: req.params.folderId === 'token-root' ? host.__testTask ?? null : null };
+      else if (req.method === 'project.runTest') result = { opened: true };
       const respond = (fail = false) => listeners.forEach(listener => listener({ data: { protocol: 1, type: 'response', id: req.id, ok: !fail, ...(fail ? { error: { code: 'OPEN_FAILED', message: '旧目录打开失败' } } : { result }) } }));
       if (req.method === 'folder.open' && host.__delayFolderOpen) host.__finishFolderOpen = respond;
+      else if (req.method === 'project.runTest' && host.__delayTestRun) host.__finishTestRun = respond;
       else setTimeout(respond, 15);
       if (req.method === 'app.getState') setTimeout(() => listeners.forEach(listener => listener({ data: { protocol: 1, type: 'event', event: 'window.visibility', data: { visible: true, visibilityId: 1 } } })), 90);
     } };
@@ -65,6 +68,90 @@ test('single-folder long press lists actual immediate contents; navigation and b
   await expect(page.locator('.stack-panel')).toHaveCount(0);
   expect(await calls(page, 'app.saveState')).toHaveLength(0);
   expect(await calls(page, 'shell.openItem')).toHaveLength(0);
+});
+
+test('code project detection is read-only; Run tests sends only saved identities and its task token', async ({ page }) => {
+  await attachHost(page);
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
+  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  const run = page.getByRole('button', { name: '运行测试', exact: true });
+  await expect(run).toBeVisible();
+  await expect(run).toHaveAttribute('title', '项目测试 · npm test');
+  expect((await calls(page, 'project.detectTest'))[0].params).toEqual({ projectId: 'directory', itemId: 'root', folderId: 'token-root' });
+  expect(await calls(page, 'project.runTest')).toHaveLength(0);
+  await run.click();
+  await expect(page.getByRole('button', { name: '正在打开终端…', exact: true })).toBeDisabled();
+  expect((await calls(page, 'project.runTest'))[0].params).toEqual({ projectId: 'directory', itemId: 'root', taskId: 'test-root' });
+  expect(await calls(page, 'folder.open')).toHaveLength(0);
+  await page.evaluate(() => (window as any).__finishTestRun());
+  await expect(page.locator('.stack-panel')).toHaveCount(0);
+});
+
+test('run tests participates in slide release, outside release cancels and folders without a test hide it', async ({ page }) => {
+  await attachHost(page);
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; });
+  await hold(page, projectButton(page, '电梯贴'));
+  const run = page.getByRole('button', { name: '运行测试', exact: true });
+  await expect(run).toBeVisible();
+  let target = await center(run); await page.mouse.move(target.x, target.y);
+  await expect(run).toHaveClass(/selected/);
+  await page.mouse.move(10, 650); await page.mouse.up();
+  expect(await calls(page, 'project.runTest')).toHaveLength(0);
+  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
+  await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
+  await expect(run).toHaveCount(0);
+  await page.getByRole('button', { name: '返回上一层', exact: true }).click();
+  await expect(run).toBeVisible();
+  await run.focus(); await page.keyboard.press('Enter');
+  await expect.poll(() => calls(page, 'project.runTest')).toHaveLength(1);
+});
+
+test('failed test launch keeps directory contents and allows retry', async ({ page }) => {
+  await attachHost(page);
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
+  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '运行测试', exact: true }).click();
+  await page.evaluate(() => (window as any).__finishTestRun(true));
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.locator('.directory-row')).toHaveCount(3);
+  await expect(page.getByRole('button', { name: '运行测试', exact: true })).toBeEnabled();
+});
+
+test('a pending test response cannot close a subsequently browsed child directory', async ({ page }) => {
+  await attachHost(page);
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
+  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '运行测试', exact: true }).click();
+  await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
+  await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
+  await page.evaluate(async () => {
+    (window as any).__finishTestRun();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
+  expect(await calls(page, 'project.runTest')).toHaveLength(1);
+});
+
+for (const viewport of [{ width: 340, height: 500 }, { width: 360, height: 640 }, { width: 640, height: 360 }]) test(`test actions stay accessible with truncated contents at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  const seed = structuredClone(initial); seed.preferences.height = 160;
+  const listing = { ...root, truncated: true, entries: Array.from({ length: 200 }, (_, i) => ({ id: `entry-${i}`, name: `文档 ${i}.pdf`, kind: 'file' as const })) };
+  await attachHost(page, seed, listing);
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm run test' }; });
+  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  const run = page.getByRole('button', { name: '运行测试', exact: true });
+  await expect(run).toBeVisible();
+  const bounds = await page.locator('.stack-panel').boundingBox();
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+  // On very short displays the entire bounded panel can scroll instead of clipping actions.
+  await run.scrollIntoViewIfNeeded();
+  const button = await run.boundingBox();
+  expect(button!.y + button!.height).toBeLessThanOrEqual(viewport.height);
+  await run.click();
+  await expect.poll(() => calls(page, 'project.runTest')).toHaveLength(1);
 });
 
 test('long-press slide from the folder icon opens the released file once, never on pointer down', async ({ page }) => {

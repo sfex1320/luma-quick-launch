@@ -16,6 +16,8 @@ public class DockMessageQueueTests
     [InlineData("shell.getIcon")]
     [InlineData("shell.openItem")]
     [InlineData("search.open")]
+    [InlineData("project.detectTest")]
+    [InlineData("project.runTest")]
     public async Task SlowFolderDoesNotBlockWindowSyncAcknowledgement(string method)
     {
         var queue = new DockMessageQueue();

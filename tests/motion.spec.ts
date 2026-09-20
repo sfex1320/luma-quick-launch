@@ -34,6 +34,26 @@ async function loadDock(page: Page, reducedMotion = false, width = 640) {
   await expect(page.locator('.dock-handle')).toBeAttached();
 }
 
+test('native exit is not reversed by renderer pointer movement or focus changes from other windows', async ({ page }) => {
+  await loadDock(page);
+  await page.evaluate(() => (window as any).__motionShow(true));
+  const wrap = page.locator('.dock-wrap');
+  await expect(wrap).toBeVisible();
+  await expect.poll(() => wrap.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.evaluate(() => (window as any).__motionShow(false));
+  await expect(wrap).toHaveClass(/dock-closing/);
+  await wrap.evaluate(el => {
+    el.getAnimations()[0].pause();
+    window.dispatchEvent(new Event('blur'));
+    el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 1, movementY: 1 }));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(wrap).toHaveClass(/dock-closing/);
+  await wrap.evaluate(el => el.getAnimations()[0].finish());
+  await expect(wrap).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__motionCalls.filter((c: any) => c.method === 'window.sync').at(-1).params.expanded)).toBe(false);
+});
+
 test('entrance starts above the edge and waits for expanded layout before a continuous slide', async ({ page }) => {
   await loadDock(page);
   await page.evaluate(() => { (window as any).__holdMotionLayout = true; (window as any).__motionShow(true); });

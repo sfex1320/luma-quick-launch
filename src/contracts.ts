@@ -26,6 +26,8 @@ export const FolderEntrySchema = z.object({ id: z.string().min(1), name: z.strin
 export const FolderListingSchema = z.object({ folderId: z.string().min(1), name: z.string(), entries: z.array(FolderEntrySchema).max(200), parentId: z.string().nullable(), truncated: z.boolean() });
 export type FolderEntry = z.infer<typeof FolderEntrySchema>;
 export type FolderListing = z.infer<typeof FolderListingSchema>;
+export const ProjectTestTaskSchema = z.object({ id: z.string().min(1).max(200), label: z.string().min(1).max(120), command: z.string().min(1).max(1000) });
+export type ProjectTestTask = z.infer<typeof ProjectTestTaskSchema>;
 export const IconResponseSchema = z.object({ dataUrl: z.string().max(350000).refine(value => {
   if (!/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
   try {
@@ -48,6 +50,8 @@ export interface Methods {
   'shell.resolveDrop': { params: Record<string, never>; result: ImportedShortcut[] };
   'folder.list': { params: { projectId: string; itemId: string; folderId?: string }; result: FolderListing };
   'folder.open': { params: { projectId: string; itemId: string; entryId: string }; result: { accepted: boolean } };
+  'project.detectTest': { params: { projectId: string; itemId: string; folderId: string }; result: { task: ProjectTestTask | null } };
+  'project.runTest': { params: { projectId: string; itemId: string; taskId: string }; result: { opened: boolean } };
   'search.query': { params: { query: string; scope: SearchScope }; result: z.infer<typeof SearchResponseSchema> };
   'search.open': { params: { resultId: string }; result: { accepted: boolean } };
   'window.closeSearch': { params: Record<string, never>; result: { accepted: boolean } };
@@ -69,6 +73,8 @@ export const resultSchemas = {
   'shell.resolveDrop': z.array(ImportedShortcutSchema).max(100),
   'folder.list': FolderListingSchema,
   'folder.open': z.object({ accepted: z.boolean() }),
+  'project.detectTest': z.object({ task: ProjectTestTaskSchema.nullable() }),
+  'project.runTest': z.object({ opened: z.boolean() }),
   'search.query': SearchResponseSchema,
   'search.open': z.object({ accepted: z.boolean() }),
   'window.closeSearch': z.object({ accepted: z.boolean() }),

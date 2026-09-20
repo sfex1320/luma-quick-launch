@@ -97,6 +97,18 @@ public sealed class FolderService
             foreach (var id in _tokens.Where(p => p.Value.Client == clientId).Select(p => p.Key).ToArray()) _tokens.Remove(id);
     }
 
+    // Called only by a bounded background service. Never accepts a web-supplied path.
+    internal string ResolveTestDirectory(string client, string project, string item, string folderId)
+    {
+        ValidateIds(client, project, item, folderId);
+        var root = ResolveRoot(project, item);
+        var capability = ResolveToken(client, project, item, root, folderId);
+        if (!capability.Directory) throw Invalid("该入口不是文件夹。");
+        ValidatePath(root, capability.Path, true);
+        EnsureRootUnchanged(project, item, root);
+        return capability.Path;
+    }
+
     private FolderListing List(string client, string project, string item, string? folderId, CancellationToken cancellation)
     {
         var root = ResolveRoot(project, item);

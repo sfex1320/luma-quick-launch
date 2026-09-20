@@ -104,9 +104,14 @@ public sealed class EdgeActivation : IDisposable
     // Mouse buttons + Shift / Ctrl / Alt / both Windows keys; no low-bit historical
     // press flag, no keyboard hook, and no key polling while the dock is hidden.
     private static readonly int[] InteractionKeys = { 0x01, 0x02, 0x04, 0x05, 0x06, 0x10, 0x11, 0x12, 0x5B, 0x5C };
+    // Global input can delay starting auto-hide, but cannot reverse an exit: Alt+Tab,
+    // Win+Down and clicks in other apps are not interactions with this dock.
+    // Actual dock interaction and the physical pointer reentry checks still reverse it.
+    internal static bool InputKeepsDockOpen(bool closing, bool interacting, bool pressedInput) =>
+        interacting || (!closing && pressedInput);
     private void CheckCollapse()
     {
-        if (!AutoCollapseEnabled || _keepOpen() || HasPressedInput() || Environment.TickCount64 < _graceUntil)
+        if (!AutoCollapseEnabled || InputKeepsDockOpen(_closing, _keepOpen(), HasPressedInput()) || Environment.TickCount64 < _graceUntil)
         { _collapseMisses = 0; CancelClose(); return; }
         if (!Win32.GetCursorPos(out var point)) return;
         if (_dockContainsPoint(point.X, point.Y) || _hotspots.Values.Any(x =>
