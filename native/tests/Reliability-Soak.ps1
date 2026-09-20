@@ -11,6 +11,9 @@ param(
     [switch]$InjectRendererFailure,
     [switch]$UseUserState
 )
+# A detached Windows PowerShell job can inherit PowerShell 7's bundled module
+# paths from the desktop host. Prefer this engine's modules before autoloading.
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
 $ErrorActionPreference = 'Stop'
 if ($Seconds -lt 60) { throw 'Seconds must be at least 60.' }
 if ($SampleIntervalSeconds -lt 2) { throw 'SampleIntervalSeconds must be at least 2.' }
