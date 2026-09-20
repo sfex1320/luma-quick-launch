@@ -23,6 +23,7 @@ public sealed class DockWindow : Window, IHostClient
     private readonly BackdropService _backdrop;
     private readonly WebView2 _web;
     private readonly WebViewReliability _reliability;
+    private readonly LatestStateMessageBuffer _deferredState = new();
     private IntPtr _hwnd;
     private HwndSource? _source;
     private readonly DockMessageQueue _messages = new();
@@ -184,9 +185,19 @@ public sealed class DockWindow : Window, IHostClient
 
     void IHostClient.PostJson(string json)
     {
+        if (_reliability.IsInactiveDesired && _deferredState.TryDefer(json))
+        {
+            Log.Info("浮岛暂停期间合并待同步状态");
+            return;
+        }
         Dispatcher.BeginInvoke(() =>
         {
             if (_messages.IsClosed) return;
+            if (_reliability.IsInactiveDesired && _deferredState.TryDefer(json))
+            {
+                Log.Info("浮岛暂停期间合并待同步状态");
+                return;
+            }
             try { _web.CoreWebView2?.PostWebMessageAsJson(json); }
             catch (Exception ex) { Log.Warn($"浮岛回应失败: {ex.Message}"); }
         });
@@ -254,6 +265,7 @@ public sealed class DockWindow : Window, IHostClient
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(PreInitialize); return; }
         _reliability.Resume();
+        FlushDeferredState();
         if (!IsVisible) Show();
         RefreshRegion();
         Win32.SetWindowPos(_hwnd, Win32.HwndTopmost, 0, 0, 0, 0, Win32.SWP_NOACTIVATE | Win32.SWP_NOMOVE | Win32.SWP_NOSIZE);
@@ -264,6 +276,7 @@ public sealed class DockWindow : Window, IHostClient
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.Invoke(ShowDock); return; }
         _reliability.Resume();
+        FlushDeferredState();
         _visibleToUser = true;
         _activationRequested = false;
         if (!IsVisible) Show();
@@ -288,6 +301,25 @@ public sealed class DockWindow : Window, IHostClient
     {
         _activationRequested = true;
         _reliability.Resume();
+        FlushDeferredState();
+    }
+
+    private void FlushDeferredState()
+    {
+        var core = _web.CoreWebView2;
+        if (core is null) return;
+        var json = _deferredState.TakeLatest();
+        if (json is null) return;
+        try
+        {
+            core.PostWebMessageAsJson(json);
+            Log.Info("浮岛恢复后补发最新状态");
+        }
+        catch (Exception ex)
+        {
+            _deferredState.TryDefer(json);
+            Log.Warn($"浮岛补发状态失败: {ex.Message}");
+        }
     }
 
     // Consult the actual physical window region, not WindowFromPoint: Explorer's drag
@@ -355,7 +387,7 @@ internal sealed class DockMessageQueue
                 method = name.GetString();
         }
         catch (System.Text.Json.JsonException) { /* Router owns validation and error responses. */ }
-        if (method is "folder.list" or "folder.open" or "folder.getThumbnail" or "shell.getIcon" or "shell.openItem" or "search.open" or "project.detectTest" or "project.runTest")
+        if (method is "folder.list" or "folder.open" or "folder.getThumbnail" or "folder.getPath" or "folder.createFolder" or "folder.rename" or "folder.move" or "shell.getIcon" or "shell.openItem" or "shell.getRecent" or "shell.openRecent" or "website.inspect" or "search.open" or "project.detectTest" or "project.runTest")
         {
             // Never hold the layout queue across slow directory, icon or window-reuse IO.
             // The router still validates the request; each service bounds its workers.

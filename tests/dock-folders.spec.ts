@@ -74,11 +74,11 @@ test('single-folder long press lists actual immediate contents; navigation and b
 
 test('code project detection is read-only; Run tests sends only saved identities and its task token', async ({ page }) => {
   await attachHost(page);
-  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; (window as any).__delayTestRun = true; });
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
-  const run = page.getByRole('button', { name: '运行测试', exact: true });
+  const run = page.getByRole('button', { name: '测试软件', exact: true });
   await expect(run).toBeVisible();
-  await expect(run).toHaveAttribute('title', '项目测试 · npm test');
+  await expect(run).toHaveAttribute('title', '测试软件 · npm test');
   expect((await calls(page, 'project.detectTest'))[0].params).toEqual({ projectId: 'directory', itemId: 'root', folderId: 'token-root' });
   expect(await calls(page, 'project.runTest')).toHaveLength(0);
   await run.click();
@@ -91,9 +91,9 @@ test('code project detection is read-only; Run tests sends only saved identities
 
 test('run tests participates in slide release, outside release cancels and folders without a test hide it', async ({ page }) => {
   await attachHost(page);
-  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; });
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; });
   await hold(page, projectButton(page, '电梯贴'));
-  const run = page.getByRole('button', { name: '运行测试', exact: true });
+  const run = page.getByRole('button', { name: '测试软件', exact: true });
   await expect(run).toBeVisible();
   let target = await center(run); await page.mouse.move(target.x, target.y);
   await expect(run).toHaveClass(/selected/);
@@ -103,7 +103,7 @@ test('run tests participates in slide release, outside release cancels and folde
   await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
-  await expect(page.locator('.folder-column').last().getByRole('button', { name: '运行测试', exact: true })).toHaveCount(0);
+  await expect(page.locator('.folder-column').last().getByRole('button', { name: '测试软件', exact: true })).toHaveCount(0);
   await expect(run).toBeVisible(); // The retained parent keeps its own action.
   await page.getByRole('button', { name: '返回上一层', exact: true }).click();
   await expect(run).toBeVisible();
@@ -113,20 +113,20 @@ test('run tests participates in slide release, outside release cancels and folde
 
 test('failed test launch keeps directory contents and allows retry', async ({ page }) => {
   await attachHost(page);
-  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; (window as any).__delayTestRun = true; });
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
-  await page.getByRole('button', { name: '运行测试', exact: true }).click();
+  await page.getByRole('button', { name: '测试软件', exact: true }).click();
   await page.evaluate(() => (window as any).__finishTestRun(true));
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('.directory-row')).toHaveCount(3);
-  await expect(page.getByRole('button', { name: '运行测试', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '测试软件', exact: true })).toBeEnabled();
 });
 
 test('a pending test response cannot close a subsequently browsed child directory', async ({ page }) => {
   await attachHost(page);
-  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm test' }; (window as any).__delayTestRun = true; });
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; (window as any).__delayTestRun = true; });
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
-  await page.getByRole('button', { name: '运行测试', exact: true }).click();
+  await page.getByRole('button', { name: '测试软件', exact: true }).click();
   await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
@@ -143,9 +143,9 @@ for (const viewport of [{ width: 340, height: 500 }, { width: 360, height: 640 }
   const seed = structuredClone(initial); seed.preferences.height = 160;
   const listing = { ...root, truncated: true, entries: Array.from({ length: 200 }, (_, i) => ({ id: `entry-${i}`, name: `文档 ${i}.pdf`, kind: 'file' as const })) };
   await attachHost(page, seed, listing);
-  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '项目测试', command: 'npm run test' }; });
+  await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm run test' }; });
   await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
-  const run = page.getByRole('button', { name: '运行测试', exact: true });
+  const run = page.getByRole('button', { name: '测试软件', exact: true });
   await expect(run).toBeVisible();
   const bounds = await page.locator('.stack-panel').boundingBox();
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
@@ -241,6 +241,9 @@ test('mixed groups include the first entry, browse folder members and launch a s
   await page.waitForTimeout(340);
   expect(await calls(page, 'shell.openItem')).toHaveLength(0);
   await page.mouse.up();
+  await expect(page.getByLabel('编辑器 最近项目')).toBeVisible();
+  expect(await calls(page, 'shell.openItem')).toHaveLength(0);
+  await page.locator('.group-entry-row .stack-item[data-item-id="editor-member"]').click();
   await expect.poll(() => calls(page, 'shell.openItem')).toHaveLength(1);
   expect((await calls(page, 'shell.openItem'))[0].params).toEqual({ projectId: 'directory', itemId: 'editor-member' });
   await expect(page.locator('.stack-panel')).toHaveCount(0);
@@ -279,7 +282,7 @@ for (const fail of [false, true]) {
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     }, fail);
     await expect(currentMenu).toBeVisible();
-    await expect(currentMenu.locator('.stack-item[data-item-id="main"]')).toBeVisible();
+    await expect(currentMenu.getByLabel('编辑器 最近项目')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     expect(await calls(page, 'folder.open')).toHaveLength(1);
     expect(await calls(page, 'shell.openItem')).toHaveLength(0);
@@ -287,20 +290,19 @@ for (const fail of [false, true]) {
 }
 
 for (const fromMore of [true, false]) {
-  test(`narrow viewport organize mode merges ${fromMore ? 'from More into the main bar' : 'from the main bar into More'}`, async ({ page }) => {
+  test(`narrow viewport organize mode merges ${fromMore ? 'from the scrolled rail to its beginning' : 'from the beginning to a scrolled target'}`, async ({ page }) => {
     await page.setViewportSize({ width: 340, height: 720 });
     const narrow = structuredClone(initial);
     narrow.preferences.width = 320;
     await attachHost(page, narrow);
     await page.getByRole('button', { name: '整理图标', exact: true }).click();
-    await page.getByRole('button', { name: '更多项目', exact: true }).click();
-    const more = page.getByRole('region', { name: '更多项目列表', exact: true });
+    const more = page.locator('.dock-launchers');
     await expect(more).toBeVisible();
-    const source = fromMore ? more.locator('[data-drop-project="editor"]') : projectButton(page, '电梯贴');
+    const source = fromMore ? more.locator('[data-drop-project="editor"] .dock-project') : projectButton(page, '电梯贴');
     const target = fromMore ? page.locator('.dock-slot[data-drop-project="directory"]') : more.locator('[data-drop-project="editor"]');
-    await hold(page, source);
+    await source.scrollIntoViewIfNeeded(); await hold(page, source);
     await expect(more).toBeVisible();
-    const destination = await center(target);
+    await target.scrollIntoViewIfNeeded(); const destination = await center(target);
     await page.mouse.move(destination.x, destination.y, { steps: 12 });
     await expect(target).toHaveClass(/group-drop-target/);
     await page.mouse.up();
@@ -311,7 +313,7 @@ for (const fromMore of [true, false]) {
     expect((await calls(page, 'app.saveState'))[0].params.expectedRevision).toBe(4);
     expect(await calls(page, 'shell.openItem')).toHaveLength(0);
     expect(await calls(page, 'folder.open')).toHaveLength(0);
-    await expect(more).toHaveCount(0);
+    await expect(more).toBeVisible();
   });
 }
 
@@ -352,7 +354,7 @@ test('grouped children do not consume adaptive dock width', async ({ page }) => 
   await expect(page.locator('.dock')).toHaveCSS('width', '320px');
 });
 
-test('adaptive width stops at 1120 and keeps the remaining pinned projects in More', async ({ page }) => {
+test('adaptive width stops at 1120 and keeps the remaining pinned projects in a horizontal scroll rail', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 700 });
   const many = structuredClone(initial);
   many.preferences.width = 320;
@@ -362,7 +364,10 @@ test('adaptive width stops at 1120 and keeps the remaining pinned projects in Mo
   }));
   await attachHost(page, many);
   await expect(page.locator('.dock')).toHaveCSS('width', '1120px');
-  await expect(page.getByRole('button', { name: '更多项目', exact: true })).toBeVisible();
+  await expect.poll(() => page.locator('.dock-launchers').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  await expect(page.locator('.dock-slot')).toHaveCount(20);
+  await page.locator('.dock-slot').last().scrollIntoViewIfNeeded();
+  await expect.poll(() => page.locator('.dock-launchers').evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
 });
 
 test('removing a top-level project uses one FLIP width animation and bounded native sync', async ({ page }) => {

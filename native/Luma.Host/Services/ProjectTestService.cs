@@ -27,6 +27,15 @@ public sealed class RealProjectTestFiles : IProjectTestFiles
         var path = Path.Combine(directory, name);
         try
         {
+            // The only nested probes are fixed src-tauri metadata. Never follow a linked
+            // metadata directory outside the directory capability.
+            void CheckParent()
+            {
+                if (Path.GetDirectoryName(name) is { Length: > 0 } parent &&
+                    (File.GetAttributes(Path.Combine(directory, parent)) & FileAttributes.ReparsePoint) != 0)
+                    throw new FolderOperationException(ProtocolErrors.AccessDenied, "项目清单目录不能是链接。");
+            }
+            CheckParent();
             if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
                 throw new FolderOperationException(ProtocolErrors.AccessDenied, "项目清单不能是链接或目录。");
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
@@ -41,9 +50,11 @@ public sealed class RealProjectTestFiles : IProjectTestFiles
             }
             if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                 throw new FolderOperationException(ProtocolErrors.AccessDenied, "项目清单已变为链接，请重新展开。");
+            CheckParent();
             return output.ToArray();
         }
         catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
     }
     public string[] ProjectNames(string directory)
     {
@@ -58,7 +69,7 @@ public sealed class RealProjectTestFiles : IProjectTestFiles
 /// <summary>Explicit-click capability execution; no scanning, command execution or installation during detection.</summary>
 public sealed class ProjectTestService
 {
-    private sealed record Detection(string Tool, string[] Arguments, string Display, string Fingerprint, LaunchConfiguration? Launch = null);
+    private sealed record Detection(string Tool, string[] Arguments, string Display, string Fingerprint, LaunchConfiguration? Launch = null, string Label = "测试软件");
     private sealed record Capability(string Client, string Project, string Item, string Folder, string Directory, Detection Detection, DateTimeOffset Expires);
     private static readonly SemaphoreSlim Workers = new(2, 2);
     private readonly object _gate = new();
@@ -96,7 +107,7 @@ public sealed class ProjectTestService
                 while (_tokens.Count >= 128) _tokens.Remove(_tokens.First().Key);
                 _tokens[id] = new(client, project, item, folder, directory, detection, _clock().AddMinutes(2));
             }
-            return new ProjectTestTask(id, detection.Launch is null ? "运行测试" : "手动启动", detection.Display);
+            return new ProjectTestTask(id, detection.Launch is null ? detection.Label : "手动启动", detection.Display);
         }
     });
 
@@ -181,13 +192,12 @@ public sealed class ProjectTestService
         Read("Cargo.lock", 2 * 1024 * 1024);
         var go = Read("go.mod");
         Read("go.sum", 2 * 1024 * 1024);
-        var candidates = new List<(string Tool, string[] Arguments, string Display)>();
+        var candidates = new List<(string Tool, string[] Arguments, string Display, string Label)>();
         if (package is not null)
         {
             using var json = JsonDocument.Parse(package, new JsonDocumentOptions { MaxDepth = 32 });
             var root = json.RootElement;
-            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("scripts", out var scripts) && scripts.ValueKind == JsonValueKind.Object &&
-                scripts.TryGetProperty("test", out var test) && test.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(test.GetString()) && test.GetString()!.Length <= 4096)
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("scripts", out var scripts) && scripts.ValueKind == JsonValueKind.Object)
             {
                 var managers = locks.Select(name => name.StartsWith("pnpm") ? "pnpm" : name.StartsWith("yarn") ? "yarn" : "npm").Distinct().ToArray();
                 var manager = managers.Length == 0 ? "npm" : managers.Length == 1 ? managers[0] : null;
@@ -201,13 +211,39 @@ public sealed class ProjectTestService
                         else manager = declaredName;
                     }
                 }
-                if (manager is not null) candidates.Add((manager, ["run", "test"], $"{manager} run test"));
+                if (manager is not null)
+                {
+                    static string? Script(JsonElement values, string name) =>
+                        values.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(value.GetString()) && value.GetString()!.Length <= 4096 ? value.GetString() : null;
+                    var script = new[] { "test", "dev", "start" }.FirstOrDefault(name => Script(scripts, name) is not null);
+                    // An explicit Tauri CLI script plus local dependency and development config
+                    // identifies the desktop app. A generic dev script would only open its web server.
+                    var tauri = false;
+                    if (script != "test" && Script(scripts, "tauri")?.Trim() == "tauri" &&
+                        new[] { "dependencies", "devDependencies" }.Any(name => root.TryGetProperty(name, out var dependencies) &&
+                            dependencies.ValueKind == JsonValueKind.Object && Script(dependencies, "@tauri-apps/cli") is not null))
+                    {
+                        var configuration = Read("src-tauri/tauri.conf.json");
+                        Read("src-tauri/tauri.windows.conf.json");
+                        Read("src-tauri/Cargo.toml");
+                        Read("src-tauri/Cargo.lock", 2 * 1024 * 1024);
+                        if (configuration is not null)
+                        {
+                            using var config = JsonDocument.Parse(configuration, new JsonDocumentOptions { MaxDepth = 32 });
+                            tauri = config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("build", out var build) &&
+                                build.ValueKind == JsonValueKind.Object && (Script(build, "devUrl") is not null || Script(build, "beforeDevCommand") is not null);
+                        }
+                    }
+                    if (tauri) candidates.Add((manager, ["run", "tauri", "dev"], $"{manager} run tauri dev", "打开项目软件"));
+                    else if (script is not null) candidates.Add((manager, ["run", script], $"{manager} run {script}", script == "test" ? "测试软件" : "打开项目软件"));
+                }
             }
         }
         if (cargo is not null && Regex.IsMatch(Encoding.UTF8.GetString(cargo), @"(?m)^\s*\[(package|workspace)\]\s*(#.*)?$"))
-            candidates.Add(("cargo", ["test", "--offline"], "cargo test --offline"));
+            candidates.Add(("cargo", ["test", "--offline"], "cargo test --offline", "测试软件"));
         if (go is not null && Regex.IsMatch(Encoding.UTF8.GetString(go), @"(?m)^\s*module\s+\S+"))
-            candidates.Add(("go", ["test", "./..."], "go test ./..."));
+            candidates.Add(("go", ["test", "./..."], "go test ./...", "测试软件"));
         var projectNames = _files.ProjectNames(directory);
         // Only one explicitly identified test project is supported, never evaluate MSBuild while detecting.
         foreach (var name in projectNames)
@@ -218,11 +254,11 @@ public sealed class ProjectTestService
             var doc = XDocument.Load(reader);
             var explicitTest = doc.Descendants().Any(e => e.Name.LocalName == "IsTestProject" && e.Value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) &&
                 !e.AncestorsAndSelf().Any(a => a.Attribute("Condition") is not null));
-            if (explicitTest) candidates.Add(("dotnet", ["test", ".\\" + name, "--no-restore"], $"dotnet test \"{name}\" --no-restore"));
+            if (explicitTest) candidates.Add(("dotnet", ["test", ".\\" + name, "--no-restore"], $"dotnet test \"{name}\" --no-restore", "测试软件"));
         }
         if (candidates.Count != 1) return null;
         var selected = candidates[0];
-        return new(selected.Tool, selected.Arguments, selected.Display, Convert.ToHexString(hash.GetHashAndReset()));
+        return new(selected.Tool, selected.Arguments, selected.Display, Convert.ToHexString(hash.GetHashAndReset()), Label: selected.Label);
     }
 
     private async Task<T> Bounded<T>(Func<CancellationToken, T> action)
@@ -281,11 +317,11 @@ public sealed class WindowsProjectTestTerminal : IProjectTestTerminal
                 WorkingDirectory = command.Directory, UseShellExecute = false, CreateNoWindow = false,
             };
         }
-        // The command body contains only host-selected executables and literal arguments, never scripts.test.
+        // The command body contains only host-selected executables and literal arguments, never manifest script bodies.
         static string Literal(string value) => "'" + value.Replace("'", "''") + "'";
         var args = string.Join(",", command.Arguments.Select(Literal));
         var script = "$ErrorActionPreference='Stop'; " +
-            "$env:COREPACK_ENABLE_NETWORK='0'; $env:COREPACK_ENABLE_AUTO_PIN='0'; $env:GOPROXY='off'; $env:GONOPROXY='none'; $env:GOSUMDB='off'; $env:GOVCS='*:off'; $env:GOTOOLCHAIN='local'; " +
+            "$env:COREPACK_ENABLE_NETWORK='0'; $env:COREPACK_ENABLE_AUTO_PIN='0'; $env:CARGO_NET_OFFLINE='true'; $env:GOPROXY='off'; $env:GONOPROXY='none'; $env:GOSUMDB='off'; $env:GOVCS='*:off'; $env:GOTOOLCHAIN='local'; " +
             "Set-Location -LiteralPath " + Literal(command.Directory) + "; " +
             "$testArgs=@(" + args + "); & " + Literal(toolPath) + " @testArgs; " +
             "Write-Host ('测试进程退出码: ' + $LASTEXITCODE)";

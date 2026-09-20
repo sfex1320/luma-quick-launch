@@ -6,6 +6,14 @@ namespace Luma.Host.Tests;
 public class WindowActivationTests
 {
     [Fact]
+    public void AcceptedRequestStillRequiresObservedForegroundWindow()
+    {
+        var elapsed = 0;
+        Assert.False(WindowActivation.RestoreAndActivate(() => false, () => { },
+            () => true, () => false, ms => elapsed += ms));
+        Assert.Equal(100, elapsed);
+    }
+    [Fact]
     public void WaitsForPostedRestoreBeforeForegroundRequest()
     {
         var elapsed = 0;
@@ -13,7 +21,7 @@ public class WindowActivationTests
         var activationAt = -1;
         Assert.True(WindowActivation.RestoreAndActivate(() => elapsed < 60,
             () => restored = true, () => { activationAt = elapsed; return elapsed >= 60; },
-            () => false, ms => elapsed += ms));
+            () => elapsed >= 60, ms => elapsed += ms));
         Assert.True(restored);
         Assert.InRange(activationAt, 60, 300);
     }

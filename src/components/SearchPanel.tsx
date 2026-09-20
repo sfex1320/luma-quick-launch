@@ -9,6 +9,7 @@ const scopes: { id: SearchScope; title: string }[] = [
 ];
 export function SearchPanel() {
   const [query, setQuery] = useState(''), [scope, setScope] = useState<SearchScope>('all');
+  const [appAliases, setAppAliases] = useState(true), [fuzzyNames, setFuzzyNames] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]), [note, setNote] = useState(''), [error, setError] = useState('');
   const [loading, setLoading] = useState(true), [opening, setOpening] = useState(false), [selected, setSelected] = useState(0), [version, setVersion] = useState(0);
   const input = useRef<HTMLInputElement>(null), resultList = useRef<HTMLDivElement>(null), openingRef = useRef(false);
@@ -26,13 +27,13 @@ export function SearchPanel() {
     let cancelled = false;
     setLoading(true); setError(''); setResults([]); setSelected(0);
     const timer = setTimeout(() => {
-      void request('search.query', { query: query.trim(), scope }).then(data => {
+      void request('search.query', { query: query.trim(), scope, appAliases, fuzzyNames }).then(data => {
         if (cancelled) return;
         setResults(data.results); setNote(data.note); setLoading(false);
       }).catch(e => { if (!cancelled) { setError(e.message); setLoading(false); } });
     }, query ? 160 : 0);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [query, scope, version]);
+  }, [query, scope, version, appAliases, fuzzyNames]);
   useEffect(() => { resultList.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [selected]);
   const open = async (item: SearchResult) => {
     if (openingRef.current) return;
@@ -52,6 +53,7 @@ export function SearchPanel() {
     <header className="search-top"><span className="search-brand">L<span>UMA</span></span><span>随时找到，直接打开</span><button className="icon-button" aria-label="关闭搜索" onClick={close}><X size={18}/></button></header>
     <div className="search-hero-input"><Search size={25}/><input ref={input} autoFocus maxLength={200} role="combobox" aria-label="搜索快捷项、文件、设置和内容" aria-controls="global-search-results" aria-expanded={results.length > 0} aria-activedescendant={results[selected] ? `result-${selected}` : undefined} placeholder="文件、软件、设置，或文档里的一句话…" value={query} onChange={e => setQuery(e.target.value)}/>{loading && <LoaderCircle size={18} className="search-spinner"/>}</div>
     <nav className="search-scopes" aria-label="搜索范围">{scopes.map(s => <button key={s.id} aria-pressed={scope === s.id} onClick={() => setScope(s.id)}>{s.title}</button>)}</nav>
+    <div className="search-options"><label><input type="checkbox" checked={appAliases} onChange={e => setAppAliases(e.target.checked)}/>软件别名（AI、PS）</label><label><input type="checkbox" checked={fuzzyNames} onChange={e => setFuzzyNames(e.target.checked)}/>已保存文件 / 目录轻度模糊匹配</label></div>
     <div className="global-search-results" ref={resultList} id="global-search-results" role="listbox" aria-label="搜索结果" aria-busy={loading || opening}>
       {results.map((item, i) => <button key={item.id} id={`result-${i}`} role="option" aria-selected={i === selected} disabled={opening} onPointerMove={() => setSelected(i)} onClick={() => void open(item)}>
         {item.kind === 'setting' ? <span className="search-setting-icon"><Settings2 size={22}/></span> : <ItemIcon kind={item.kind} size={38}/>}

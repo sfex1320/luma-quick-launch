@@ -31,6 +31,8 @@ public sealed class Project
 
 public sealed class LaunchItem
 {
+    [JsonPropertyName("note"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; set; }
+    [JsonPropertyName("websiteIcon"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? WebsiteIcon { get; set; }
     [JsonRequired, JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonRequired, JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonRequired, JsonPropertyName("path")] public string Path { get; set; } = "";
@@ -47,6 +49,7 @@ public sealed record LaunchConfiguration
 
 public sealed class Preferences
 {
+    [JsonPropertyName("recentLimit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RecentLimit { get; set; }
     [JsonRequired, JsonPropertyName("width")] public double Width { get; set; } = 640;
     [JsonRequired, JsonPropertyName("height")] public double Height { get; set; } = 88;
     [JsonRequired, JsonPropertyName("iconSize")] public double IconSize { get; set; } = 40;
@@ -72,7 +75,7 @@ public static class StateValidator
     public static readonly HashSet<string> Colors = new(StringComparer.Ordinal) { "mint", "blue", "violet", "peach", "gold" };
     public static readonly HashSet<string> Materials = new(StringComparer.Ordinal) { "frost", "soft", "solid" };
     public static readonly HashSet<string> Themes = new(StringComparer.Ordinal) { "light", "dark" };
-    public static readonly HashSet<string> Kinds = new(StringComparer.Ordinal) { "folder", "file", "app" };
+    public static readonly HashSet<string> Kinds = new(StringComparer.Ordinal) { "folder", "file", "app", "url" };
 
     /// <summary>新安装的初始空状态，与 docs/contracts/empty-state.json 逐字节一致（由测试保证）。</summary>
     public static AppState EmptyState() => new()
@@ -117,6 +120,9 @@ public static class StateValidator
                     if (string.IsNullOrEmpty(item.Name) || item.Name.Length > 120) errors.Add($"项目 {label} 入口 {itemLabel}: 名称长度需在 1–120 字之间。");
                     if (string.IsNullOrEmpty(item.Path) || item.Path.Length > 4096) errors.Add($"项目 {label} 入口 {itemLabel}: 路径长度需在 1–4096 字之间。");
                     if (!Kinds.Contains(item.Kind)) errors.Add($"项目 {label} 入口 {itemLabel}: kind 枚举非法。");
+                    if (item.Kind == "url" && !Services.WebsiteService.IsUrl(item.Path)) errors.Add("网址只支持有效的 HTTP(S) 地址。");
+                    if (item.Note?.Length > 240) errors.Add("入口备注最多 240 字。");
+                    if (item.WebsiteIcon is { } icon && (item.Kind != "url" || !Services.WebsiteService.IsIconDataUrl(icon))) errors.Add("网站图标必须为已验证的小尺寸 PNG。");
                     if (item.Launch is { } launch)
                     {
                         if (item.Kind != "folder") errors.Add($"项目 {label} 入口 {itemLabel}: 只有文件夹可以保存启动命令。");
@@ -140,6 +146,7 @@ public static class StateValidator
             if (prefs.Radius < 12 || prefs.Radius > 32) errors.Add("圆角需在 12–32 之间。");
             if (!Materials.Contains(prefs.Material)) errors.Add("材质枚举非法。");
             if (!Themes.Contains(prefs.Theme)) errors.Add("主题枚举非法。");
+            if (prefs.RecentLimit is < 6 or > 10) errors.Add("最近项目数量为 6–10 条。");
         }
         return errors;
     }

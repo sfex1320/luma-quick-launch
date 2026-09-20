@@ -42,6 +42,7 @@ public sealed class ShellIconService
             throw new ArgumentException("图标入口编号或尺寸无效。");
         var state = _store.Current;
         var item = state.Projects.FirstOrDefault(p => p.Id == projectId)?.Items.FirstOrDefault(i => i.Id == itemId);
+        if (item?.Kind == "url") return IsPngDataUrl(item.WebsiteIcon) ? item.WebsiteIcon : null;
         if (_store.LoadError is not null || item is null || item.Kind == "folder" || PathRules.Validate(item.Path) is not null || item.Path.StartsWith(@"\\?\") || item.Path.StartsWith(@"\\.\")) return null;
         var key = new Key(state.Revision, projectId, itemId, item.Path, size);
         Task<string?> task;

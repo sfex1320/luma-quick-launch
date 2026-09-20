@@ -1,10 +1,11 @@
+import { shortcutMatches } from './core/searchMatch';
 import { HostEventSchema, resultSchemas, StateSchema, type AppState, type HostEvent, type Method, type Methods } from './contracts';
 import { initialState } from './data';
 interface WebView { postMessage(message: unknown): void; postMessageWithAdditionalObjects?(message: unknown, objects: File[]): void; addEventListener(type: 'message', callback: (event: MessageEvent) => void): void }
 declare global { interface Window { chrome?: { webview?: WebView } } }
 const webview = window.chrome?.webview;
 export const nativeMode = !!webview || new URLSearchParams(location.search).get('mode') === 'native';
-type Pending = { method: Method; resolve: (value: unknown) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout> };
+type Pending = { method: Method; resolve: (value: unknown) => void; reject: (reason: Error) => void; timeout: ReturnType<typeof setTimeout> | undefined };
 const pending = new Map<string, Pending>();
 const listeners = new Set<(event: HostEvent) => void>();
 // Local persistence acknowledgement for read-only derived resources, separate from host state events.
@@ -39,7 +40,10 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
     if (!webview) throw new Error('未连接原生内核，请在 WebView2 宿主中打开');
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
-      const timeout = setTimeout(() => { pending.delete(id); reject(new Error('内核响应超时，请检查连接')); }, method === 'shell.pickFolder' || method === 'shell.pickFiles' ? 120000 : 8000);
+      // Once a disk mutation commits it cannot safely time out as "failed": retain
+      // the final response and the UI busy state. Native admission is bounded to two.
+      const diskMutation = method === 'folder.createFolder' || method === 'folder.rename' || method === 'folder.move';
+      const timeout = diskMutation ? undefined : setTimeout(() => { pending.delete(id); reject(new Error('内核响应超时，请检查连接')); }, method === 'shell.pickFolder' || method === 'shell.pickFiles' ? 120000 : 8000);
       pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject, timeout });
       try {
         const message = { protocol: 1, type: 'request', id, method, params };
@@ -53,6 +57,9 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
   }
   let result: unknown;
   switch (method) {
+    case 'website.inspect': { const url = new URL((params as Methods['website.inspect']['params']).url); result = { url: url.href, title: url.hostname, dataUrl: null }; break; }
+    case 'shell.getRecent': result = { entries: [], note: '桌面程序读取 Windows 最近项目；浏览器预览不读取本机历史。' }; break;
+    case 'shell.openRecent': case 'folder.getPath': case 'folder.createFolder': case 'folder.rename': case 'folder.move': throw new Error('此操作仅适用于 Luma 桌面程序中的真实目录。');
     case 'system.getIntegration': case 'system.setAutoStart': case 'system.createDesktopShortcut':
       throw new Error('请在 Luma 桌面程序中管理开机启动和桌面快捷方式。');
     case 'app.getState': {
@@ -74,8 +81,8 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
     case 'folder.list': case 'folder.open': throw new Error('请在 Luma 桌面程序中浏览真实目录；浏览器预览不读取本机文件。');
     case 'project.detectTest': case 'project.runTest': throw new Error('请在 Luma 桌面程序中识别并运行项目测试。');
     case 'search.query': {
-      const { query, scope } = params as Methods['search.query']['params'];
-      result = { results: scope === 'settings' || scope === 'content' ? [] : demoState.projects.flatMap(p => p.items.filter(i => `${p.name} ${i.name} ${i.path}`.toLowerCase().includes(query.toLowerCase())).map(i => ({ id: `${p.id}/${i.id}`, title: i.name, subtitle: `${p.name} · ${i.path}`, kind: i.kind, source: 'shortcut' }))).slice(0, 60), indexAvailable: false, note: '浏览器仅预览已保存入口；桌面程序支持 Windows 索引和设置搜索。' }; break;
+      const { query, scope, appAliases, fuzzyNames } = params as Methods['search.query']['params'];
+      result = { results: scope === 'settings' || scope === 'content' ? [] : demoState.projects.flatMap(p => p.items.filter(i => shortcutMatches(query, `${p.name} ${i.name}`, i.path, i.kind, appAliases, fuzzyNames)).map(i => ({ id: `${p.id}/${i.id}`, title: i.name, subtitle: `${p.name} · ${i.path}`, kind: i.kind, source: 'shortcut' }))).slice(0, 60), indexAvailable: false, note: '浏览器仅预览已保存入口；桌面程序支持 Windows 索引和设置搜索。' }; break;
     }
     case 'search.open': result = { accepted: true }; break;
     case 'window.closeSearch': result = { accepted: true }; break;

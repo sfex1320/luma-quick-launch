@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
@@ -12,6 +13,39 @@ public sealed class WebViewActivityState
     public void RequestActive() => ActiveDesired = true;
     public void RequestInactive() => ActiveDesired = false;
     public bool ShouldResumeAfterSuspend() => ActiveDesired;
+}
+
+/// <summary>One-slot buffer for the only coalescible host event: the latest persisted app state.</summary>
+public sealed class LatestStateMessageBuffer
+{
+    private readonly object _gate = new();
+    private string? _latest;
+
+    public bool TryDefer(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("protocol", out var protocol) || !protocol.TryGetInt32(out var version) || version != 1 ||
+                !root.TryGetProperty("type", out var type) || type.GetString() != "event" ||
+                !root.TryGetProperty("event", out var name) || name.GetString() != "app.stateChanged") return false;
+            lock (_gate) _latest = json;
+            return true;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    public string? TakeLatest()
+    {
+        lock (_gate)
+        {
+            var latest = _latest;
+            _latest = null;
+            return latest;
+        }
+    }
 }
 
 public sealed class WebViewReliabilityPolicy
@@ -66,6 +100,8 @@ public sealed class WebViewReliability : IDisposable
         _core = core;
         core.ProcessFailed += OnProcessFailed;
     }
+
+    public bool IsInactiveDesired => !_activity.ActiveDesired;
 
     public async Task SuspendAsync()
     {

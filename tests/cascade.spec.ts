@@ -34,6 +34,19 @@ const tile = (page: Page, id: string) => page.locator(`.stack-item[data-item-id=
 async function moveTo(page: Page, element: Locator) { const box = await element.boundingBox(); expect(box).not.toBeNull(); await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 5 }); }
 const calls = (page: Page, method: string) => page.evaluate(method => (window as any).__calls.filter((c: any) => c.method === method), method);
 
+for (const half of ['split-open', 'split-enter']) test(`holding the visible ${half} enters root and child without breaking capture`, async ({ page }) => {
+  await setup(page);
+  await page.locator('.dock-project').hover();
+  const button = page.locator(`.dock-split .${half}`);
+  await expect(button).toBeVisible(); await moveTo(page, button); await page.mouse.down();
+  await expect(tile(page, 'src')).toBeVisible();
+  await moveTo(page, tile(page, 'src')); await expect(tile(page, 'components')).toBeVisible();
+  await moveTo(page, tile(page, 'components')); await expect(tile(page, 'file')).toBeVisible();
+  await moveTo(page, tile(page, 'file')); await page.mouse.up();
+  expect((await calls(page, 'folder.open')).map((call: any) => call.params.entryId)).toEqual(['file']);
+  expect(await calls(page, 'shell.openItem')).toHaveLength(0);
+});
+
 test('continuous hold expands three retained directory levels and release launches the final file once', async ({ page }) => {
   await setup(page);
   await moveTo(page, page.locator('.dock-project')); await page.mouse.down();

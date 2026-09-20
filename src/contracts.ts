@@ -1,10 +1,11 @@
+import { isWebsiteUrl, isWebsiteIcon } from './core/websiteValidation.ts';
 import { z } from 'zod';
 
 export const ColorSchema = z.enum(['mint', 'blue', 'violet', 'peach', 'gold']);
 export const LaunchCommandSchema = z.object({ command: z.string().min(1).max(1000).refine(value => value.trim().length > 0 && !/[\r\n\0]/.test(value), '请输入非空的单行 CMD 命令'), workingDirectory: z.string().min(1).max(4096).refine(value => !/[\r\n\0]/.test(value) && /^(?:[a-zA-Z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(value), '请输入有效的绝对工作目录') });
-export const ItemSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder', 'file', 'app']), launch: LaunchCommandSchema.optional() });
+export const ItemSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder', 'file', 'app', 'url']), launch: LaunchCommandSchema.optional(), note: z.string().max(240).optional(), websiteIcon: z.string().max(87406).refine(isWebsiteIcon, '网站图标必须为小尺寸静态 PNG').optional() }).refine(item => item.kind !== 'url' || isWebsiteUrl(item.path), '网址必须是有效的 HTTP(S) 地址').refine(item => !item.websiteIcon || item.kind === 'url', '只有网址入口可保存网站图标');
 export const ProjectSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(60), description: z.string().max(160), color: ColorSchema, pinned: z.boolean(), items: z.array(ItemSchema).min(1).max(200) });
-export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean() });
+export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean(), recentLimit: z.number().int().min(6).max(10).optional() });
 export const StateSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), projects: z.array(ProjectSchema).max(100), preferences: PreferencesSchema }).superRefine((state, ctx) => {
   const ids = state.projects.map(p => p.id);
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', message: 'Duplicate project ID' });
@@ -17,10 +18,10 @@ export type LaunchItem = z.infer<typeof ItemSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
 export type Color = z.infer<typeof ColorSchema>;
 export interface Rect { x: number; y: number; width: number; height: number }
-export const ImportedShortcutSchema = ItemSchema.omit({ id: true });
+export const ImportedShortcutSchema = z.object({ id: z.string().optional(), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder','file','app','url']), launch: LaunchCommandSchema.optional(), note: z.string().max(240).optional(), websiteIcon: z.string().max(90000).optional() }).omit({ id: true });
 export type ImportedShortcut = z.infer<typeof ImportedShortcutSchema>;
 export const SearchScopeSchema = z.enum(['all', 'shortcuts', 'files', 'content', 'settings']);
-export const SearchResultSchema = z.object({ id: z.string().min(1), title: z.string(), subtitle: z.string(), kind: z.enum(['folder', 'file', 'app', 'setting']), source: z.enum(['shortcut', 'index', 'settings']) });
+export const SearchResultSchema = z.object({ id: z.string().min(1), title: z.string(), subtitle: z.string(), kind: z.enum(['folder', 'file', 'app', 'url', 'setting']), source: z.enum(['shortcut', 'index', 'settings']) });
 export const SearchResponseSchema = z.object({ results: z.array(SearchResultSchema).max(60), indexAvailable: z.boolean(), note: z.string() });
 export type SearchScope = z.infer<typeof SearchScopeSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
@@ -39,7 +40,16 @@ export const IconResponseSchema = z.object({ dataUrl: z.string().max(350000).ref
 }).nullable() });
 export const IntegrationSchema = z.object({ autoStart: z.boolean(), autoStartHere: z.boolean(), desktopShortcut: z.boolean() });
 export type IntegrationStatus = z.infer<typeof IntegrationSchema>;
+export const RecentSchema = z.object({ entries: z.array(z.object({ id: z.string(), name: z.string(), path: z.string(), kind: z.enum(['file','folder']) })).max(10), note: z.string() });
+export const MutationSchema = z.object({ changedCount: z.number(), completed: z.boolean(), errorCode: z.string().nullable(), message: z.string().nullable() });
 export interface Methods {
+  'website.inspect': { params: { url: string }; result: { url: string; title: string; dataUrl: string | null } };
+  'shell.getRecent': { params: { projectId: string; itemId: string; limit: number }; result: z.infer<typeof RecentSchema> };
+  'shell.openRecent': { params: { projectId: string; itemId: string; entryId: string }; result: { accepted: boolean } };
+  'folder.getPath': { params: { projectId: string; itemId: string; entryId: string }; result: { path: string } };
+  'folder.createFolder': { params: { projectId: string; itemId: string; folderId: string; name: string }; result: z.infer<typeof MutationSchema> };
+  'folder.rename': { params: { projectId: string; itemId: string; entryId: string; name: string }; result: z.infer<typeof MutationSchema> };
+  'folder.move': { params: { sourceProject: string; sourceItem: string; sourceEntryIds: string[]; targetProject: string; targetItem: string; targetFolderId: string }; result: z.infer<typeof MutationSchema> };
   'system.getIntegration': { params: Record<string, never>; result: IntegrationStatus };
   'system.setAutoStart': { params: { enabled: boolean }; result: IntegrationStatus };
   'system.createDesktopShortcut': { params: Record<string, never>; result: IntegrationStatus };
@@ -55,7 +65,7 @@ export interface Methods {
   'folder.getThumbnail': { params: { projectId: string; itemId: string; entryId: string; size?: 64 | 96 | 128 }; result: z.infer<typeof IconResponseSchema> };
   'project.detectTest': { params: { projectId: string; itemId: string; folderId: string }; result: { task: ProjectTestTask | null } };
   'project.runTest': { params: { projectId: string; itemId: string; taskId: string }; result: { opened: boolean } };
-  'search.query': { params: { query: string; scope: SearchScope }; result: z.infer<typeof SearchResponseSchema> };
+  'search.query': { params: { query: string; scope: SearchScope; appAliases?: boolean; fuzzyNames?: boolean }; result: z.infer<typeof SearchResponseSchema> };
   'search.open': { params: { resultId: string }; result: { accepted: boolean } };
   'window.closeSearch': { params: Record<string, never>; result: { accepted: boolean } };
   'window.sync': { params: { expanded: boolean; rects: Rect[]; interacting?: boolean; visibilityId?: number }; result: { applied: boolean } };
@@ -64,6 +74,13 @@ export interface Methods {
 export type Method = keyof Methods;
 export type HostEvent = { event: 'app.stateChanged'; data: AppState } | { event: 'window.visibility'; data: { visible: boolean; visibilityId?: number } };
 export const resultSchemas = {
+  'website.inspect': z.object({ url: z.string(), title: z.string(), dataUrl: IconResponseSchema.shape.dataUrl }),
+  'shell.getRecent': RecentSchema,
+  'shell.openRecent': z.object({ accepted: z.boolean() }),
+  'folder.getPath': z.object({ path: z.string() }),
+  'folder.createFolder': MutationSchema,
+  'folder.rename': MutationSchema,
+  'folder.move': MutationSchema,
   'system.getIntegration': IntegrationSchema,
   'system.setAutoStart': IntegrationSchema,
   'system.createDesktopShortcut': IntegrationSchema,

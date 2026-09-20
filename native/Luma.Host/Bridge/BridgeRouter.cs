@@ -104,10 +104,14 @@ public sealed class BridgeRouter
     private readonly ProjectTestService _projectTests;
     private readonly ShellIconService _icons;
     private readonly FolderThumbnailService _thumbnails;
+    private readonly FolderMutationService _folderMutations;
+    // Admission precedes RunBackground so arbitrary request bursts cannot queue unbounded thread-pool work.
+    private static readonly SemaphoreSlim FolderMutationRequests = new(2, 2);
+    private readonly RecentProjectService _recentProjects;
     private readonly ShortcutImportService _imports = new();
     private readonly SystemIntegrationService _integration;
 
-    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null, FolderThumbnailService? thumbnails = null)
+    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null, FolderThumbnailService? thumbnails = null, RecentProjectService? recentProjects = null)
     {
         _store = store;
         _launcher = launcher;
@@ -119,6 +123,8 @@ public sealed class BridgeRouter
         _projectTests = projectTests ?? new ProjectTestService(_folders);
         _icons = icons ?? new ShellIconService(store);
         _thumbnails = thumbnails ?? new FolderThumbnailService(_folders);
+        _folderMutations = new FolderMutationService(_folders);
+        _recentProjects = recentProjects ?? new RecentProjectService(store);
         _integration = integration ?? new SystemIntegrationService();
     }
 
@@ -138,6 +144,7 @@ public sealed class BridgeRouter
         lock (_gate) _clients.Remove(client);
         _folders.Detach(client.ClientId);
         _projectTests.Detach(client.ClientId);
+        _recentProjects.Detach(client.ClientId);
         client.Detach();
         Log.Info($"桥接客户端断开：{client.ClientId}（剩余 {Clients.Count} 个）");
     }
@@ -176,6 +183,11 @@ public sealed class BridgeRouter
 
             switch (method)
             {
+                case "website.inspect":
+                    if (!hasParams || parameters.EnumerateObject().Count() != 1 || !parameters.TryGetProperty("url", out var urlEl) || urlEl.ValueKind != JsonValueKind.String || !WebsiteService.IsUrl(urlEl.GetString()))
+                        RespondError(source, id, ProtocolErrors.InvalidRequest);
+                    else RespondOk(source, id, await _sync.RunBackground(() => new WebsiteService().ReadAsync(urlEl.GetString()!)));
+                    return;
                 case "system.getIntegration":
                 case "system.setAutoStart":
                 case "system.createDesktopShortcut":
@@ -194,8 +206,18 @@ public sealed class BridgeRouter
                 case "shell.getIcon":
                     await HandleGetIcon(source, id, parameters);
                     return;
+                case "shell.getRecent":
+                case "shell.openRecent":
+                    await HandleRecentProjects(source, id, method, parameters);
+                    return;
                 case "folder.getThumbnail":
                     await HandleGetThumbnail(source, id, parameters);
+                    return;
+                case "folder.getPath":
+                case "folder.createFolder":
+                case "folder.rename":
+                case "folder.move":
+                    await HandleFolderMutation(source, id, method, parameters);
                     return;
                 case "folder.list":
                 case "folder.open":
@@ -227,7 +249,8 @@ public sealed class BridgeRouter
                 case "search.query":
                     if (parameters.ValueKind != JsonValueKind.Object || !parameters.TryGetProperty("query", out var queryEl) || queryEl.ValueKind != JsonValueKind.String || !parameters.TryGetProperty("scope", out var scopeEl) || scopeEl.ValueKind != JsonValueKind.String || queryEl.GetString()!.Length > 200 || scopeEl.GetString() is not ("all" or "shortcuts" or "files" or "content" or "settings"))
                         RespondError(source, id, ProtocolErrors.InvalidRequest);
-                    else RespondOk(source, id, await _search.QueryAsync(source.ClientId, queryEl.GetString()!, scopeEl.GetString()!));
+                    else if (parameters.TryGetProperty("appAliases", out var aliasEl) && aliasEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False) || parameters.TryGetProperty("fuzzyNames", out var fuzzyEl) && fuzzyEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) RespondError(source, id, ProtocolErrors.InvalidRequest);
+                    else RespondOk(source, id, await _search.QueryAsync(source.ClientId, queryEl.GetString()!, scopeEl.GetString()!, !parameters.TryGetProperty("appAliases", out var aliasValue) || aliasValue.GetBoolean(), parameters.TryGetProperty("fuzzyNames", out var fuzzyValue) && fuzzyValue.GetBoolean()));
                     return;
                 case "search.open":
                     if (parameters.ValueKind != JsonValueKind.Object || !parameters.TryGetProperty("resultId", out var resultEl) || resultEl.ValueKind != JsonValueKind.String)
@@ -271,6 +294,29 @@ public sealed class BridgeRouter
         {
             Log.Error($"处理消息异常 method 路径 id={id}: {ex}");
             RespondError(source, id, ProtocolErrors.InternalError);
+        }
+    }
+
+    private async Task HandleRecentProjects(IHostClient source, string id, string method, JsonElement parameters)
+    {
+        var last = method == "shell.getRecent" ? "limit" : "entryId";
+        if (parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != 3 ||
+            parameters.EnumerateObject().Any(p => p.Name is not ("projectId" or "itemId") && p.Name != last) ||
+            !parameters.TryGetProperty("projectId", out var project) || project.ValueKind != JsonValueKind.String ||
+            !parameters.TryGetProperty("itemId", out var item) || item.ValueKind != JsonValueKind.String ||
+            !parameters.TryGetProperty(last, out var value))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        if (method == "shell.getRecent")
+        {
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var limit) || limit is < 6 or > 10)
+            { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+            RespondOk(source, id, await _recentProjects.GetAsync(source.ClientId, project.GetString()!, item.GetString()!, limit));
+        }
+        else
+        {
+            if (value.ValueKind != JsonValueKind.String)
+            { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+            RespondOk(source, id, new { accepted = await _recentProjects.OpenAsync(source.ClientId, project.GetString()!, item.GetString()!, value.GetString()!) });
         }
     }
 
@@ -318,6 +364,61 @@ public sealed class BridgeRouter
         if (parameters.TryGetProperty("size", out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out size) || size is not (32 or 48 or 64 or 96)))
         { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
         RespondOk(source, id, new { dataUrl = await _icons.GetAsync(project.GetString()!, item.GetString()!, size) });
+    }
+
+    private async Task HandleFolderMutation(IHostClient source, string id, string method, JsonElement parameters)
+    {
+        var move = method == "folder.move";
+        var create = method == "folder.createFolder";
+        var allowed = move
+            ? new[] { "sourceProject", "sourceItem", "sourceEntryIds", "targetProject", "targetItem", "targetFolderId" }
+            : method == "folder.getPath" ? new[] { "projectId", "itemId", "entryId" }
+            : new[] { "projectId", "itemId", create ? "folderId" : "entryId", "name" };
+        bool ValidString(string property, int limit) => parameters.TryGetProperty(property, out var value) &&
+            value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString()) && value.GetString()!.Length <= limit;
+        if (parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != allowed.Length ||
+            parameters.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != allowed.Length ||
+            parameters.EnumerateObject().Any(p => !allowed.Contains(p.Name, StringComparer.Ordinal)) ||
+            allowed.Where(p => p != "sourceEntryIds").Any(p => !ValidString(p, p == "name" ? 255 : 200)))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        string[] entries = [];
+        if (move)
+        {
+            var array = parameters.GetProperty("sourceEntryIds");
+            if (array.ValueKind != JsonValueKind.Array || array.GetArrayLength() is < 1 or > 100 ||
+                array.EnumerateArray().Any(entry => entry.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(entry.GetString()) || entry.GetString()!.Length > 200))
+            { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+            entries = array.EnumerateArray().Select(entry => entry.GetString()!).ToArray();
+            if (entries.Distinct(StringComparer.Ordinal).Count() != entries.Length)
+            { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        }
+        if (!await FolderMutationRequests.WaitAsync(0)) { RespondError(source, id, ProtocolErrors.Busy); return; }
+        try
+        {
+            // Extract values before scheduling; no caller path or command can enter the service.
+            string Value(string property) => parameters.GetProperty(property).GetString()!;
+            if (move)
+            {
+                var sourceProject = Value("sourceProject"); var sourceItem = Value("sourceItem");
+                var targetProject = Value("targetProject"); var targetItem = Value("targetItem"); var targetFolder = Value("targetFolderId");
+                RespondOk(source, id, await _sync.RunBackground(() => _folderMutations.MoveAsync(source.ClientId, sourceProject, sourceItem, entries, targetProject, targetItem, targetFolder)));
+            }
+            else
+            {
+                var project = Value("projectId"); var item = Value("itemId"); var token = Value(create ? "folderId" : "entryId");
+                if (method == "folder.getPath")
+                    RespondOk(source, id, new { path = await _sync.RunBackground(() => _folderMutations.GetPathAsync(source.ClientId, project, item, token)) });
+                else
+                {
+                    var name = Value("name");
+                    var result = await _sync.RunBackground(() => create
+                        ? _folderMutations.CreateFolderAsync(source.ClientId, project, item, token, name)
+                        : _folderMutations.RenameAsync(source.ClientId, project, item, token, name));
+                    RespondOk(source, id, result);
+                }
+            }
+        }
+        finally { FolderMutationRequests.Release(); }
     }
 
     private async Task HandleGetThumbnail(IHostClient source, string id, JsonElement parameters)

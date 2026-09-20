@@ -57,14 +57,110 @@ public sealed class ProjectTestServiceTests : IDisposable
         Assert.Equal(_dir, launched.Directory);
     }
     [Fact]
-    public async Task NoTestScriptAndAmbiguousManagersOrProjectTypesAreSkipped()
+    public async Task NoRunnableScriptAndAmbiguousManagersOrProjectTypesAreSkipped()
     {
-        Write("package.json", "{\"scripts\":{\"start\":\"node app.js\"}}");
+        Write("package.json", "{\"scripts\":{\"build\":\"vite build\"}}");
         Assert.Null((await Detect()).Task);
         Package(); Write("package-lock.json", "npm"); Write("yarn.lock", "yarn");
         Assert.Null((await Detect()).Task);
         File.Delete(Path.Combine(_dir, "yarn.lock")); Write("go.mod", "module example.com/test\n");
         Assert.Null((await Detect()).Task);
+        Assert.Empty(_terminal.Commands);
+    }
+    [Theory]
+    [InlineData("{\"dev\":\"vite\",\"start\":\"node app.js\"}", "dev", "打开项目软件")]
+    [InlineData("{\"start\":\"node app.js\"}", "start", "打开项目软件")]
+    [InlineData("{\"test\":\"vitest\",\"dev\":\"vite\"}", "test", "测试软件")]
+    [InlineData("{\"test\":\" \",\"dev\":\"vite\"}", "dev", "打开项目软件")]
+    public async Task ExplicitScriptsSelectTestThenDevThenStartWithoutRunningDuringDetection(string scripts, string script, string label)
+    {
+        Write("package.json", "{\"scripts\":" + scripts + "}");
+        var task = (await Detect()).Task;
+        Assert.NotNull(task);
+        Assert.Equal("npm run " + script, task.Command);
+        Assert.Equal(label, task.Label);
+        Assert.Empty(_terminal.Commands);
+        Assert.True(await Run(task.Id));
+        var command = Assert.Single(_terminal.Commands);
+        Assert.Equal(new[] { "run", script }, command.Arguments);
+        Assert.Equal(_dir, command.Directory);
+    }
+    private void TauriPackage()
+    {
+        Write("package.json", """{"scripts":{"dev":"vite","tauri":"tauri"},"devDependencies":{"@tauri-apps/cli":"^2"}}""");
+        Write("pnpm-lock.yaml", "lockfileVersion: '9.0'");
+        Directory.CreateDirectory(Path.Combine(_dir, "src-tauri"));
+        Write("src-tauri/tauri.conf.json", """{"productName":"MOMO-Canvas","build":{"beforeDevCommand":"pnpm dev","devUrl":"http://localhost:1430"}}""");
+    }
+    [Fact]
+    public async Task MomoTauriMetadataSelectsDesktopSoftwareInsteadOfViteOnly()
+    {
+        TauriPackage();
+        var task = (await Detect()).Task;
+        Assert.NotNull(task);
+        Assert.Equal("pnpm run tauri dev", task.Command);
+        Assert.Equal("打开项目软件", task.Label);
+        Assert.Empty(_terminal.Commands);
+        Assert.True(await Run(task.Id));
+        var command = Assert.Single(_terminal.Commands);
+        Assert.Equal("pnpm", command.Tool);
+        Assert.Equal(new[] { "run", "tauri", "dev" }, command.Arguments);
+        Assert.Equal(_dir, command.Directory);
+        await Error("BUSY", () => Run(task.Id));
+    }
+    [Theory]
+    [InlineData("src-tauri/tauri.conf.json")]
+    [InlineData("src-tauri/tauri.windows.conf.json")]
+    [InlineData("src-tauri/Cargo.toml")]
+    [InlineData("src-tauri/Cargo.lock")]
+    public async Task ChangedTauriMetadataInvalidatesIssuedTaskBeforeExecution(string file)
+    {
+        TauriPackage();
+        var task = (await Detect()).Task;
+        Assert.NotNull(task);
+        Write(file, file.EndsWith("toml") ? "[package]\nname='changed'" : "{\"build\":{\"devUrl\":\"http://localhost:4000\"}}");
+        await Error("INVALID_REQUEST", () => Run(task.Id));
+        Assert.Empty(_terminal.Commands);
+    }
+    [Theory]
+    [InlineData("{\"scripts\":{\"dev\":\"vite\",\"tauri\":\"tauri\"}}")]
+    [InlineData("{\"scripts\":{\"dev\":\"vite\",\"tauri\":\"echo tauri\"},\"devDependencies\":{\"@tauri-apps/cli\":\"^2\"}}")]
+    public async Task DesktopCommandRequiresExplicitCliAndUnmodifiedTauriScript(string package)
+    {
+        TauriPackage();
+        Write("package.json", package);
+        Assert.Equal("pnpm run dev", (await Detect()).Task!.Command);
+        Assert.Empty(_terminal.Commands);
+    }
+    [Fact]
+    public async Task DesktopCommandRequiresExplicitTauriConfiguration()
+    {
+        TauriPackage();
+        File.Delete(Path.Combine(_dir, "src-tauri/tauri.conf.json"));
+        Assert.Equal("pnpm run dev", (await Detect()).Task!.Command);
+    }
+    [Fact]
+    public async Task DevFallbackStillRejectsAmbiguousManagersAndRevalidatesManifest()
+    {
+        Write("package.json", """{"scripts":{"dev":"vite"}}""");
+        Write("pnpm-lock.yaml", "lock");
+        Write("yarn.lock", "lock");
+        Assert.Null((await Detect()).Task);
+        File.Delete(Path.Combine(_dir, "yarn.lock"));
+        var task = (await Detect()).Task;
+        Assert.NotNull(task);
+        Write("package.json", """{"scripts":{"dev":"different-app"}}""");
+        await Error("INVALID_REQUEST", () => Run(task.Id));
+        Assert.Empty(_terminal.Commands);
+    }
+    [Fact]
+    public async Task InvalidOrOversizeTauriConfigurationCannotProduceDesktopTask()
+    {
+        TauriPackage();
+        Write("src-tauri/tauri.conf.json", "{ malformed");
+        await Error("INVALID_REQUEST", async () => { await Detect(); });
+        Write("src-tauri/tauri.conf.json", new string(' ', 262145));
+        await Error("INVALID_REQUEST", async () => { await Detect(); });
         Assert.Empty(_terminal.Commands);
     }
     [Theory]
@@ -206,6 +302,7 @@ public sealed class ProjectTestServiceTests : IDisposable
         Assert.Contains("Set-Location -LiteralPath '" + _dir.Replace("'", "''") + "'", body);
         Assert.Contains("'.\\Test ''& $().csproj'", body);
         Assert.Contains("$env:COREPACK_ENABLE_NETWORK='0'", body);
+        Assert.Contains("$env:CARGO_NET_OFFLINE='true'", body);
         Assert.Contains("$env:GOPROXY='off'", body);
         Assert.Contains("$env:GONOPROXY='none'", body);
         Assert.Contains("$env:GOVCS='*:off'", body);

@@ -97,6 +97,33 @@ public sealed class FolderService
             foreach (var id in _tokens.Where(p => p.Value.Client == clientId).Select(p => p.Key).ToArray()) _tokens.Remove(id);
     }
 
+    // Only the bounded explicit disk-operation service consumes this internal authority snapshot.
+    internal (string Root, string Path, bool Directory) ResolveMutationEntry(string client, string project, string item, string entryId)
+    {
+        ValidateIds(client, project, item, entryId);
+        var root = ResolveRoot(project, item);
+        var capability = ResolveToken(client, project, item, root, entryId);
+        var path = capability.Path;
+        if (!Path.IsPathFullyQualified(path) || path.IndexOf('\0') >= 0 || path.StartsWith(@"\\?\") || path.StartsWith(@"\\.\") ||
+            !SamePath(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)), Path.TrimEndingDirectorySeparator(path)) ||
+            path[Path.GetPathRoot(path)!.Length..].Contains(':')) throw Invalid("路径无效。");
+        ValidatePath(root, path, capability.Directory);
+        if ((_files.GetAttributes(path) & FileAttributes.Device) != 0) throw Invalid("不支持设备路径。");
+        EnsureRootUnchanged(project, item, root);
+        ResolveToken(client, project, item, root, entryId);
+        return (root, path, capability.Directory);
+    }
+
+    internal void InvalidateMutationRoots(params string[] roots)
+    {
+        // Include overlapping saved roots and every client; a moved ancestor invalidates their path capabilities too.
+        bool Overlaps(string a, string b) => SamePath(a, b) ||
+            a.StartsWith(Path.EndsInDirectorySeparator(b) ? b : b + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+            b.StartsWith(Path.EndsInDirectorySeparator(a) ? a : a + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        lock (_gate)
+            foreach (var id in _tokens.Where(p => roots.Any(root => Overlaps(p.Value.Root, root))).Select(p => p.Key).ToArray()) _tokens.Remove(id);
+    }
+
     // Called only by a bounded background service. Never accepts a web-supplied path.
     internal string ResolveTestDirectory(string client, string project, string item, string folderId)
     {

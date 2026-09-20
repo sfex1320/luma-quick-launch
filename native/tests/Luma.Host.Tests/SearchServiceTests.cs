@@ -166,6 +166,40 @@ public sealed class SearchServiceTests : IDisposable
         Assert.Empty(_shell.Launched);
     }
 
+    [Fact]
+    public async Task AppAliasesMatchOnlySavedApplications()
+    {
+        var state = TestStates.Empty();
+        var project = TestStates.Project("creative", @"D:\Work");
+        project.Items.Clear();
+        project.Items.Add(TestStates.Item("illustrator", @"C:\Creative\Adobe Illustrator\Illustrator.exe", "app"));
+        project.Items[^1].Name = "Adobe Illustrator";
+        project.Items.Add(TestStates.Item("folder", @"D:\Photoshop Assets", "folder"));
+        project.Items[^1].Name = "Photoshop Archive";
+        state.Projects.Add(project);
+        Assert.Equal(SaveOutcome.Saved, _store.Save(state, 0).Outcome);
+        var service = new SearchService(_store, new Provider());
+
+        var response = await service.QueryAsync("a", "AI", "shortcuts", appAliases: true);
+
+        Assert.Equal("Adobe Illustrator", Assert.Single(response.Results).Title);
+        Assert.Empty((await service.QueryAsync("a", "PS", "shortcuts", appAliases: false)).Results);
+        Assert.Empty((await service.QueryAsync("a", "PS", "shortcuts", appAliases: true)).Results);
+    }
+
+    [Fact]
+    public async Task OptionalFuzzyNamesAreBoundedToSavedEntryNames()
+    {
+        var state = TestStates.OneProject("photos", @"D:\Photos");
+        state.Projects[0].Items[0].Name = "Reference Materials";
+        Assert.Equal(SaveOutcome.Saved, _store.Save(state, 0).Outcome);
+        var service = new SearchService(_store, new Provider());
+
+        Assert.Empty((await service.QueryAsync("a", "Materails", "shortcuts", fuzzyNames: false)).Results);
+        Assert.Single((await service.QueryAsync("a", "Materails", "shortcuts", fuzzyNames: true)).Results);
+        Assert.Contains("已保存文件/目录入口", (await service.QueryAsync("a", "Materails", "all", fuzzyNames: true)).Note);
+    }
+
     private sealed class Provider : IWindowsSearchProvider
     {
         public bool Fail; public int Calls;

@@ -1,4 +1,198 @@
 {
+  "website.inspect": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "dataUrl": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 350000
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "url",
+      "title",
+      "dataUrl"
+    ],
+    "additionalProperties": false
+  },
+  "shell.getRecent": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "entries": {
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "file",
+                "folder"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "path",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "note": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "entries",
+      "note"
+    ],
+    "additionalProperties": false
+  },
+  "shell.openRecent": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "folder.getPath": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "folder.createFolder": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "changedCount": {
+        "type": "number"
+      },
+      "completed": {
+        "type": "boolean"
+      },
+      "errorCode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "message": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "changedCount",
+      "completed",
+      "errorCode",
+      "message"
+    ],
+    "additionalProperties": false
+  },
+  "folder.rename": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "changedCount": {
+        "type": "number"
+      },
+      "completed": {
+        "type": "boolean"
+      },
+      "errorCode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "message": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "changedCount",
+      "completed",
+      "errorCode",
+      "message"
+    ],
+    "additionalProperties": false
+  },
+  "folder.move": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "changedCount": {
+        "type": "number"
+      },
+      "completed": {
+        "type": "boolean"
+      },
+      "errorCode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "message": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "changedCount",
+      "completed",
+      "errorCode",
+      "message"
+    ],
+    "additionalProperties": false
+  },
   "system.getIntegration": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -133,7 +327,8 @@
                     "enum": [
                       "folder",
                       "file",
-                      "app"
+                      "app",
+                      "url"
                     ]
                   },
                   "launch": {
@@ -155,6 +350,14 @@
                       "workingDirectory"
                     ],
                     "additionalProperties": false
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 240
+                  },
+                  "websiteIcon": {
+                    "type": "string",
+                    "maxLength": 87406
                   }
                 },
                 "required": [
@@ -221,6 +424,11 @@
           },
           "autoHide": {
             "type": "boolean"
+          },
+          "recentLimit": {
+            "type": "integer",
+            "minimum": 6,
+            "maximum": 10
           }
         },
         "required": [
@@ -315,7 +523,8 @@
                     "enum": [
                       "folder",
                       "file",
-                      "app"
+                      "app",
+                      "url"
                     ]
                   },
                   "launch": {
@@ -337,6 +546,14 @@
                       "workingDirectory"
                     ],
                     "additionalProperties": false
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 240
+                  },
+                  "websiteIcon": {
+                    "type": "string",
+                    "maxLength": 87406
                   }
                 },
                 "required": [
@@ -403,6 +620,11 @@
           },
           "autoHide": {
             "type": "boolean"
+          },
+          "recentLimit": {
+            "type": "integer",
+            "minimum": 6,
+            "maximum": 10
           }
         },
         "required": [
@@ -508,7 +730,8 @@
           "enum": [
             "folder",
             "file",
-            "app"
+            "app",
+            "url"
           ]
         },
         "launch": {
@@ -530,6 +753,14 @@
             "workingDirectory"
           ],
           "additionalProperties": false
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "websiteIcon": {
+          "type": "string",
+          "maxLength": 90000
         }
       },
       "required": [
@@ -562,7 +793,8 @@
           "enum": [
             "folder",
             "file",
-            "app"
+            "app",
+            "url"
           ]
         },
         "launch": {
@@ -584,6 +816,14 @@
             "workingDirectory"
           ],
           "additionalProperties": false
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "websiteIcon": {
+          "type": "string",
+          "maxLength": 90000
         }
       },
       "required": [
@@ -770,6 +1010,7 @@
                 "folder",
                 "file",
                 "app",
+                "url",
                 "setting"
               ]
             },

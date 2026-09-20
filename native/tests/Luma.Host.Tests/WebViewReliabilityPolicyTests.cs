@@ -57,4 +57,27 @@ public sealed class WebViewReliabilityPolicyTests
 
         Assert.True(state.ShouldResumeAfterSuspend());
     }
+
+    [Fact]
+    public void Suspended_state_events_are_coalesced_to_the_latest_message()
+    {
+        var buffer = new LatestStateMessageBuffer();
+        var first = "{\"protocol\":1,\"type\":\"event\",\"event\":\"app.stateChanged\",\"data\":{\"revision\":1}}";
+        var latest = "{\"protocol\":1,\"type\":\"event\",\"event\":\"app.stateChanged\",\"data\":{\"revision\":2}}";
+
+        Assert.True(buffer.TryDefer(first));
+        Assert.True(buffer.TryDefer(latest));
+        Assert.Equal(latest, buffer.TakeLatest());
+        Assert.Null(buffer.TakeLatest());
+    }
+
+    [Fact]
+    public void Responses_and_visibility_events_are_not_deferred_as_state()
+    {
+        var buffer = new LatestStateMessageBuffer();
+
+        Assert.False(buffer.TryDefer("{\"protocol\":1,\"type\":\"response\",\"id\":\"x\",\"ok\":true}"));
+        Assert.False(buffer.TryDefer("{\"protocol\":1,\"type\":\"event\",\"event\":\"window.visibility\",\"data\":{\"visible\":true}}"));
+        Assert.Null(buffer.TakeLatest());
+    }
 }

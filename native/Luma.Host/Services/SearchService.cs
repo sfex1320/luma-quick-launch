@@ -115,6 +115,16 @@ public sealed class WindowsSearchProvider : IWindowsSearchProvider
 
 public sealed class SearchService
 {
+    private static readonly IReadOnlyDictionary<string, string[]> AppAliasIdentities =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AI"] = ["Illustrator"],
+            ["PS"] = ["Photoshop"],
+            ["AE"] = ["After Effects", "AfterEffects"],
+            ["PR"] = ["Premiere Pro", "Premiere"],
+            ["ID"] = ["InDesign"],
+            ["CDR"] = ["CorelDRAW", "Corel Draw"],
+        };
     private sealed record Capability(string ClientId, DateTimeOffset Expires, string? ProjectId, string? ItemId, string? Path, string? Setting);
     private sealed record Setting(string Title, string Keywords, string Uri);
     private static readonly Setting[] Settings =
@@ -163,7 +173,7 @@ public sealed class SearchService
         _launch = new LaunchService(store, _shell, _probe);
     }
 
-    public async Task<SearchResponse> QueryAsync(string clientId, string query, string scope)
+    public async Task<SearchResponse> QueryAsync(string clientId, string query, string scope, bool appAliases = true, bool fuzzyNames = false)
     {
         if (string.IsNullOrEmpty(clientId) || clientId.Length > 200 || query is null || query.Length > 200 || query.Any(char.IsControl)
             || scope is not ("all" or "shortcuts" or "files" or "content" or "settings"))
@@ -192,7 +202,9 @@ public sealed class SearchService
         if (scope is "all" or "shortcuts")
             foreach (var project in _store.Current.Projects)
                 foreach (var item in project.Items)
-                    if (Matches($"{project.Name} {item.Name} {item.Path}"))
+                    if (Matches($"{project.Name} {item.Name} {item.Path}") ||
+                        (appAliases && item.Kind == "app" && MatchesAppAlias(query, item.Name + " " + item.Path)) ||
+                        (fuzzyNames && (item.Kind is "folder" or "file") && MatchesSavedNameFuzzy(query, item.Name + " " + Path.GetFileNameWithoutExtension(item.Path))))
                         Add(item.Name, $"{project.Name} · {item.Path}", item.Kind, "shortcut", project.Id, item.Id, item.Path);
         if (scope is "all" or "settings")
             foreach (var setting in Settings)
@@ -231,7 +243,52 @@ public sealed class SearchService
             }
         }
         else note = "当前范围无需查询 Windows 索引。";
+        if (fuzzyNames)
+            note += " 模糊匹配仅应用于已保存文件/目录入口；Windows 索引仍按文件名词首和正文查询，不扫描未索引位置。";
         return new SearchResponse(results, available, note);
+    }
+
+    private static bool MatchesAppAlias(string query, string identity)
+    {
+        var alias = query.Trim();
+        return AppAliasIdentities.TryGetValue(alias, out var identities) &&
+            identities.Any(name => identity.Contains(name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool MatchesSavedNameFuzzy(string query, string candidate)
+    {
+        var queryWords = Regex.Matches(query, @"[\p{L}\p{N}]+").Select(match => match.Value).ToArray();
+        if (queryWords.Length == 0) return false;
+        var candidateWords = Regex.Matches(candidate, @"[\p{L}\p{N}]+").Select(match => match.Value).ToArray();
+        if (candidateWords.Length == 0) return false;
+        if (queryWords.All(word => candidate.Contains(word, StringComparison.OrdinalIgnoreCase))) return true;
+        return queryWords.Length == 1 && queryWords[0].Length >= 5 &&
+            candidateWords.Any(word => IsSingleEditApart(queryWords[0], word));
+    }
+
+    private static bool IsSingleEditApart(string left, string right)
+    {
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase)) return true;
+        if (Math.Abs(left.Length - right.Length) > 1) return false;
+        left = left.ToUpperInvariant(); right = right.ToUpperInvariant();
+        if (left.Length == right.Length)
+        {
+            var differences = new List<int>(2);
+            for (var i = 0; i < left.Length && differences.Count <= 2; i++) if (left[i] != right[i]) differences.Add(i);
+            if (differences.Count == 1) return true;
+            return differences.Count == 2 && differences[1] == differences[0] + 1 &&
+                left[differences[0]] == right[differences[1]] && left[differences[1]] == right[differences[0]];
+        }
+        var shorter = left.Length < right.Length ? left : right;
+        var longer = left.Length < right.Length ? right : left;
+        var shortIndex = 0; var longIndex = 0; var skipped = false;
+        while (shortIndex < shorter.Length && longIndex < longer.Length)
+        {
+            if (shorter[shortIndex] == longer[longIndex]) { shortIndex++; longIndex++; continue; }
+            if (skipped) return false;
+            skipped = true; longIndex++;
+        }
+        return true;
     }
 
     private async Task<bool> WaitForQueryTurnAsync(string clientId)

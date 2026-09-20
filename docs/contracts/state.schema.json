@@ -69,7 +69,8 @@
                   "enum": [
                     "folder",
                     "file",
-                    "app"
+                    "app",
+                    "url"
                   ]
                 },
                 "launch": {
@@ -91,6 +92,14 @@
                     "workingDirectory"
                   ],
                   "additionalProperties": false
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                "websiteIcon": {
+                  "type": "string",
+                  "maxLength": 87406
                 }
               },
               "required": [
@@ -157,6 +166,11 @@
         },
         "autoHide": {
           "type": "boolean"
+        },
+        "recentLimit": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 10
         }
       },
       "required": [

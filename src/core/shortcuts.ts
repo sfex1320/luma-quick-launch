@@ -1,9 +1,10 @@
+import { referenceKey as pathKey } from './urls';
 import { StateSchema, type AppState, type ImportedShortcut } from '../contracts';
 
 export function addShortcuts(state: AppState, items: ImportedShortcut[], projectId?: string): AppState {
   const target = projectId ? state.projects.find(p => p.id === projectId) : undefined;
   if (projectId && !target) throw new Error('目标堆叠已删除，请重新拖入。');
-  const pathKey = (path: string) => path.replace(/\//g, '\\').replace(/[\\]+$/, '').toLowerCase();
+
   const existing = new Set((target ? target.items : state.projects.flatMap(p => p.items)).map(i => pathKey(i.path)));
   const unique = items.filter(item => { const key = pathKey(item.path); if (existing.has(key)) return false; existing.add(key); return true; });
   if (!unique.length) throw new Error('这些快捷项已经存在。');

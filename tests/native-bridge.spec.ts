@@ -7,7 +7,7 @@ async function attachHost(page: Page, echo = false, initial = initialState) {
     const calls: Array<{ method: string; params: any }> = [];
     const host = window as unknown as { chrome: any; __calls: typeof calls; __hostState: typeof state };
     host.__calls = calls; host.__hostState = state;
-    let visibilityId = 0;
+    let visibilityId = 0, initialVisibilitySent = false;
     (window as any).__emitVisibility = (visible: boolean) => { const id = ++visibilityId; listeners.forEach(listener => listener({ data: { protocol: 1, type: 'event', event: 'window.visibility', data: { visible, visibilityId: id } } })); };
     host.chrome = host.chrome || {};
     host.chrome.webview = {
@@ -26,7 +26,7 @@ async function attachHost(page: Page, echo = false, initial = initialState) {
         else if (req.method === 'shell.resolveDrop') result = (window as any).__resolvedDrop ?? [];
         else result = { accepted: true };
         setTimeout(() => listeners.forEach(listener => listener({ data: { protocol: 1, type: 'response', id: req.id, ok: true, result } })), req.method === 'shell.resolveDrop' ? ((window as any).__dropDelay ?? 20) : 20);
-        if (req.method === 'app.getState') setTimeout(() => (window as any).__emitVisibility(true), 100);
+        if (req.method === 'app.getState' && !initialVisibilitySent) { initialVisibilitySent = true; setTimeout(() => (window as any).__emitVisibility(true), 100); }
       },
       postMessageWithAdditionalObjects: (req: any) => host.chrome.webview.postMessage(req),
     };

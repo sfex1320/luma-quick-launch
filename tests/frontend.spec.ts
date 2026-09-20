@@ -45,10 +45,9 @@ test('appearance, overflow, theme and persisted settings', async ({ page }) => {
   await page.setViewportSize({ width: 340, height: 844 });
   await openPage(page, '外观');
   await page.getByLabel('初始宽度', { exact: true }).fill('320');
-  await expect(page.getByRole('button', { name: '更多项目', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '更多项目', exact: true }).click();
-  await expect(page.getByRole('region', { name: '更多项目列表' })).toBeVisible();
-  await page.keyboard.press('Escape');
+  await expect.poll(() => page.locator('.dock-launchers').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  await page.locator('.dock-slot').last().scrollIntoViewIfNeeded();
+  await expect.poll(() => page.locator('.dock-launchers').evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
   await page.getByRole('button', { name: '深色模式', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe('rgb(27, 26, 23)');
@@ -66,8 +65,9 @@ test('keyboard alternative and narrow viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: '总览' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('button', { name: '更多项目', exact: true }).click();
-  await expect(page.getByRole('region', { name: '更多项目列表' })).toBeVisible();
+  const last = page.locator('.dock-project').last();
+  await last.focus(); await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.stack-panel')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('region', { name: '更多项目列表' })).toHaveCount(0);
+  await expect(page.locator('.stack-panel')).toHaveCount(0);
 });

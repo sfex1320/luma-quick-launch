@@ -1,3 +1,4 @@
+import { hasUrlText, parseUrls } from './core/urls';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { LayoutDashboard, Layers3, SlidersHorizontal, Cpu, Search, Plus, ArrowUpRight, ArrowRight, Settings2, Pin, PinOff, Pencil, Trash2, Check, ExternalLink, Monitor, MousePointer2, Download, Upload, ChevronRight, MoveLeft, MoveRight, Command, X, FolderOpen } from 'lucide-react';
 import type { AppState, ImportedShortcut, LaunchItem, Project } from './contracts';
@@ -13,7 +14,7 @@ import { ProjectEditor } from './components/ProjectEditor';
 import { addShortcuts } from './core/shortcuts';
 import { GroupIcon } from './components/GroupIcon';
 import { BrandMark } from './components/BrandMark';
-import { mergeProjects, ungroupProject } from './core/groups';
+import { mergeProjects, ungroupProject, reorderProject, removeReference, moveReference } from './core/groups';
 import { hasExternalFiles, hasProjectDrag, PROJECT_DRAG_TYPE } from './core/settingsDrop';
 import './components/settings-drop.css';
 import { version as appVersion } from '../package.json';
@@ -40,6 +41,7 @@ export default function App() {
   const workspace = useRef({ state, error }); workspace.current = { state, error };
   const importing = useRef(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dropIntent, setDropIntent] = useState('merge');
   const [groupSourceId, setGroupSourceId] = useState<string | null>(null);
   const draggingProject = useRef<string | null>(null);
   const overlay = new URLSearchParams(location.search).get('view') === 'dock';
@@ -60,7 +62,7 @@ export default function App() {
   useEffect(() => {
     if (overlay) return;
     // Prevent WebView's default navigation even outside an active drop zone.
-    const preventFileNavigation = (event: globalThis.DragEvent) => { if (event.dataTransfer && hasExternalFiles(event.dataTransfer)) event.preventDefault(); };
+    const preventFileNavigation = (event: globalThis.DragEvent) => { if (event.dataTransfer && (hasExternalFiles(event.dataTransfer) || hasUrlText(event.dataTransfer))) event.preventDefault(); };
     window.addEventListener('dragover', preventFileNavigation);
     window.addEventListener('drop', preventFileNavigation);
     return () => { window.removeEventListener('dragover', preventFileNavigation); window.removeEventListener('drop', preventFileNavigation); };
@@ -112,14 +114,16 @@ export default function App() {
     finally { importing.current = false; }
   };
   const dragOver = (event: DragEvent, projectId?: string) => {
-    if (!hasExternalFiles(event.dataTransfer) && !(projectId && hasProjectDrag(event.dataTransfer))) return;
+    if (!hasExternalFiles(event.dataTransfer) && !hasUrlText(event.dataTransfer) && !(projectId && hasProjectDrag(event.dataTransfer))) return;
     event.preventDefault(); event.stopPropagation();
     event.dataTransfer.dropEffect = hasExternalFiles(event.dataTransfer) ? 'copy' : 'move';
+    if (hasProjectDrag(event.dataTransfer)) { const rect = event.currentTarget.getBoundingClientRect(), ratio = (event.clientY - rect.top) / rect.height; setDropIntent(ratio < .22 ? 'before' : ratio > .78 ? 'after' : 'merge'); } else setDropIntent('merge');
     setDropTarget(projectId ?? 'blank');
   };
   const dropFiles = (event: DragEvent, projectId?: string) => {
-    if (!hasExternalFiles(event.dataTransfer) && !hasProjectDrag(event.dataTransfer)) return;
+    if (!hasExternalFiles(event.dataTransfer) && !hasProjectDrag(event.dataTransfer) && !hasUrlText(event.dataTransfer)) return;
     event.preventDefault(); event.stopPropagation(); setDropTarget(null);
+    if (!hasExternalFiles(event.dataTransfer) && !hasProjectDrag(event.dataTransfer)) { void importUrls(event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain'), projectId); return; }
     if (hasExternalFiles(event.dataTransfer)) {
       const files = Array.from(event.dataTransfer.files);
       if (!nativeMode) { notify('请在 Luma 桌面程序中拖入文件夹、软件和文件，浏览器预览无法读取真实路径。'); return; }
@@ -130,14 +134,20 @@ export default function App() {
       const source = draggingProject.current;
       draggingProject.current = null;
       if (!source || !projectId || source === projectId || event.dataTransfer.getData(PROJECT_DRAG_TYPE) !== source) return;
-      change(s => {
-        const list = [...s.projects], from = list.findIndex(p => p.id === source), to = list.findIndex(p => p.id === projectId);
-        if (from < 0 || to < 0) return s;
-        list.splice(to, 0, ...list.splice(from, 1)); return { ...s, projects: list };
-      });
+      const rect = event.currentTarget.getBoundingClientRect(), ratio = (event.clientY - rect.top) / rect.height;
+      if (ratio < .22 || ratio > .78) changeGrouping(s => reorderProject(s, source, projectId, ratio > .78), '已调整顺序');
+      else groupProjects(source, projectId);
     }
   };
-  const dock = <Dock projects={state.projects} preferences={state.preferences} onOpen={openItem} onSettings={openSettings} onSearch={openSearch} overlay={overlay} onGroup={groupProjects} onUngroup={splitProject} onDropFiles={(files, projectId) => importShortcuts(() => request('shell.resolveDrop', {}, files), projectId)}/>;
+  const importUrls = (text: string, projectId?: string) => importShortcuts(async () => {
+    const urls = parseUrls(text), result: ImportedShortcut[] = [];
+    for (const url of urls) {
+      const metadata = await request('website.inspect', { url });
+      result.push({ name: metadata.title.slice(0,120), path: metadata.url, kind: 'url', ...(metadata.dataUrl ? { websiteIcon: metadata.dataUrl } : {}) });
+    }
+    return result;
+  }, projectId);
+  const dock = <Dock projects={state.projects} preferences={state.preferences} onOpen={openItem} onSettings={openSettings} onSearch={openSearch} overlay={overlay} onDropText={importUrls} onGroup={groupProjects} onUngroup={splitProject} onReorder={(source, target, after) => changeGrouping(s => reorderProject(s, source, target, after), '已调整顺序')} onRemove={(projectId, itemId) => changeGrouping(s => removeReference(s, projectId, itemId), '已移除快捷引用，源文件保留')} onMoveItem={(source, item, target) => changeGrouping(s => moveReference(s, source, item, target), '已调整快捷引用')} onDropFiles={(files, projectId) => importShortcuts(() => request('shell.resolveDrop', {}, files), projectId)}/>;
   const entries = state.projects.reduce((sum, p) => sum + p.items.length, 0), pinned = state.projects.filter(p => p.pinned).length;
   const health = `${pinned}/${state.projects.length} 置顶`;
   return <>
@@ -187,18 +197,18 @@ export default function App() {
             </section>
             <section className="cp-card">
               <header className="cp-card-head"><strong><Layers3 size={14}/>项目速览</strong><button className="text-button" onClick={() => setPage('projects')}>管理全部项目<ArrowRight size={13}/></button></header>
-              <div className="cp-quick-list">{state.projects.slice(0, 5).map(project => <button key={project.id} onClick={() => setEditor(project)}><GroupIcon items={project.items} color={project.color} size={32}/><span className="cp-quick-name">{project.name}</span><span className="cp-quick-path">{project.items[0]?.path}</span><span className="cp-badge">{project.items.length} 入口</span><ChevronRight size={14}/></button>)}{!state.projects.length && <p className="empty-message">还没有项目。点右上角「新建项目」，把常用文件夹收进来。</p>}</div>
+              <div className="cp-quick-list">{state.projects.slice(0, 5).map(project => <button key={project.id} onClick={() => setEditor(project)}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={32}/><span className="cp-quick-name">{project.name}</span><span className="cp-quick-path">{project.items[0]?.path}</span><span className="cp-badge">{project.items.length} 入口</span><ChevronRight size={14}/></button>)}{!state.projects.length && <p className="empty-message">还没有项目。点右上角「新建项目」，把常用文件夹收进来。</p>}</div>
             </section>
           </>}
 
           {page === 'projects' && <>
-            <div className="settings-drop-guide"><strong>项目是一个逻辑分组，不是磁盘上的文件夹。</strong><p>一个项目可绑定 5 个目录，也可混合软件和文件，最多 200 个入口。单击打开第一个默认入口，长按展开其他入口；实际文件不会移动。</p><p>{nativeMode ? '拖到此页空白处：添加独立快捷项；拖到已有项目卡片：加入堆叠。拖动卡片右上的排序手柄可调整顺序。' : '浏览器预览不能读取真实路径；请在 Luma 桌面程序中拖入目录、软件和文件。'}</p></div>
+            <div className="settings-drop-guide"><strong>项目是一个逻辑分组，不是磁盘上的文件夹。</strong><p>一个项目可绑定 5 个目录，也可混合软件和文件，最多 200 个入口。单击打开第一个默认入口，长按展开其他入口；实际文件不会移动。</p><p>{nativeMode ? '拖到此页空白处：添加独立快捷项；拖到已有项目卡片：加入堆叠。拖到卡片中心合并，拖到上 / 下边缘插入排序。' : '浏览器预览不能读取真实路径；请在 Luma 桌面程序中拖入目录、软件和文件。'}</p></div>
             <section className="cp-card">
               <header className="cp-card-head"><strong>全部项目</strong><label className="project-filter"><Search size={14}/><input aria-label="筛选项目" placeholder="查找项目…" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button aria-label="清空筛选" onClick={() => setQuery('')}><X size={13}/></button>}</label></header>
-              <div className="project-grid">{projects.map(project => <article className={`project-card card-${project.color} ${dropTarget === project.id ? 'settings-drop-active' : ''}`} key={project.id} onDragOver={e => dragOver(e, project.id)} onDrop={e => dropFiles(e, project.id)}>
-                <div className="project-card-top"><button className="card-folder-button" aria-label={`编辑 ${project.name}`} onClick={() => setEditor(project)}><GroupIcon items={project.items} color={project.color} size={52}/></button>
+              <div className="project-grid">{projects.map(project => <article className={`project-card card-${project.color} ${dropTarget === project.id ? 'settings-drop-active drop-' + dropIntent : ''}`} key={project.id} onDragOver={e => dragOver(e, project.id)} onDrop={e => dropFiles(e, project.id)}>
+                <div className="project-card-top"><button className="card-folder-button" draggable onDragStart={event => { draggingProject.current = project.id; event.dataTransfer.setData(PROJECT_DRAG_TYPE, project.id); event.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { draggingProject.current = null; setDropTarget(null); }} aria-label={`编辑 ${project.name}`} onClick={() => setEditor(project)}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={52}/></button>
                   <div className="cp-card-tools">
-                    <button className="project-drag-handle" aria-label={`拖动排序 ${project.name}`} title="拖到另一张卡片排序，也可使用下方前后移动按钮" draggable onDragStart={e => { draggingProject.current = project.id; e.dataTransfer.setData(PROJECT_DRAG_TYPE, project.id); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { draggingProject.current = null; setDropTarget(null); }}>⠿</button>
+                    <button className="project-drag-handle" aria-label={`拖动排序 ${project.name}`} title="拖到中心合并，拖到上 / 下边缘排序" draggable onDragStart={e => { draggingProject.current = project.id; e.dataTransfer.setData(PROJECT_DRAG_TYPE, project.id); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { draggingProject.current = null; setDropTarget(null); }}>⠿</button>
                     <button className={`pin-button ${project.pinned ? 'pinned' : ''}`} aria-label={`${project.pinned ? '取消置顶' : '置顶'} ${project.name}`} onClick={() => change(s => ({ ...s, projects: s.projects.map(p => p.id === project.id ? { ...p, pinned: !p.pinned } : p) }))}>{project.pinned ? <Pin size={14}/> : <PinOff size={14}/>}</button>
                     <button aria-label={`修改 ${project.name}`} onClick={() => setEditor(project)}><Pencil size={14}/></button>
                     <button aria-label={`移除 ${project.name}`} onClick={() => { if (confirm(`移除「${project.name}」的快捷入口？实际文件不会删除。`)) change(s => ({ ...s, projects: s.projects.filter(p => p.id !== project.id) })); }}><Trash2 size={14}/></button>
@@ -245,7 +255,7 @@ export default function App() {
     {editor && <ProjectEditor project={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} onSave={project => { change(s => ({ ...s, projects: s.projects.some(p => p.id === project.id) ? s.projects.map(p => p.id === project.id ? project : p) : [...s.projects, project] })); setEditor(null); notify('项目已更新'); }}/>}
     {searchOpen && <Modal title="搜索项目与入口" onClose={() => { setSearchOpen(false); setQuery(''); }}><div className="search-input"><Search size={20}/><input autoFocus aria-label="搜索项目和文件夹" placeholder="项目名称、文件夹、路径…" value={query} onChange={e => setQuery(e.target.value)}/><kbd>ESC</kbd></div><div className="search-results">{state.projects.flatMap(project => project.items.filter(item => `${project.name} ${item.name} ${item.path}`.toLowerCase().includes(query.toLowerCase())).map(item => <button key={`${project.id}-${item.id}`} onClick={() => { void openItem(project, item); setSearchOpen(false); setQuery(''); }}><CrystalFolder color={project.color} size={30}/><span><strong>{item.name}</strong><small>{project.name} · {item.path}</small></span><ArrowUpRight size={16}/></button>))}{!state.projects.some(p => p.items.some(i => `${p.name} ${i.name} ${i.path}`.toLowerCase().includes(query.toLowerCase()))) && <p className="empty-message">没有匹配的入口</p>}</div></Modal>}
     {help && <Modal title="一点小手势，大一点的专注" onClose={() => setHelp(false)}><div className="help-steps"><div><MousePointer2/><span><strong>长按 · 滑动 · 松手</strong><p>在面板上长按项目约 300 毫秒，滑向其他文件夹，松手打开。滑出面板松手取消。</p></span></div><div><FolderOpen/><span><strong>单击，直达主目录</strong><p>点击项目进入第一个目录；小箭头和右键也能展开堆叠。</p></span></div><div><SlidersHorizontal/><span><strong>留出恰好的空间</strong><p>在外观页调整宽高、图标与材质。尺寸不足时自动适配，超出入口收进「更多」。</p></span></div><div><Command/><span><strong>键盘也一样顺手</strong><p>Ctrl K 搜索，Tab 移动焦点，项目上按下方向键展开，Esc 关闭。</p></span></div></div></Modal>}
-    {groupSourceId && <Modal title="合并到其他图标" onClose={() => setGroupSourceId(null)}><p className="group-description">将「{state.projects.find(p => p.id === groupSourceId)?.name}」的入口加入下列目标。目标保留名称、颜色、置顶状态及默认入口；重复路径只保留一份，实际文件不会移动。</p><div className="group-targets">{state.projects.filter(p => p.id !== groupSourceId).map(project => <button key={project.id} aria-label={`合并到 ${project.name}`} onClick={() => groupProjects(groupSourceId, project.id)}><GroupIcon items={project.items} color={project.color} size={36}/><span><strong>{project.name}</strong><small>{project.items.length} 个入口{project.pinned ? ' · 已置顶' : ' · 未置顶'}</small></span></button>)}</div></Modal>}
+    {groupSourceId && <Modal title="合并到其他图标" onClose={() => setGroupSourceId(null)}><p className="group-description">将「{state.projects.find(p => p.id === groupSourceId)?.name}」的入口加入下列目标。目标保留名称、颜色、置顶状态及默认入口；重复路径只保留一份，实际文件不会移动。</p><div className="group-targets">{state.projects.filter(p => p.id !== groupSourceId).map(project => <button key={project.id} aria-label={`合并到 ${project.name}`} onClick={() => groupProjects(groupSourceId, project.id)}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={36}/><span><strong>{project.name}</strong><small>{project.items.length} 个入口{project.pinned ? ' · 已置顶' : ' · 未置顶'}</small></span></button>)}</div></Modal>}
     {toast && <div role="status" data-native-hit={overlay ? true : undefined} className="toast"><Check size={16}/>{toast}<button aria-label="关闭提示" onClick={() => setToast('')}><X size={14}/></button></div>}
   </>;
 }

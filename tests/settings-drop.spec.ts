@@ -93,7 +93,7 @@ test('project drag handle reorders without file import and arrow buttons remain 
   await attachHost(page);
   const first = initialState.projects[0], second = initialState.projects[1];
   const target = page.locator('.project-card').filter({ has: page.getByRole('button', { name: `修改 ${second.name}`, exact: true }) });
-  await page.getByRole('button', { name: `拖动排序 ${first.name}`, exact: true }).dragTo(target);
+  await page.getByRole('button', { name: `拖动排序 ${first.name}`, exact: true }).dragTo(target, { targetPosition: { x: 150, y: (await target.boundingBox())!.height - 3 } });
   await expect.poll(() => page.evaluate(() => (window as any).__hostState.projects[1].id)).toBe(first.id);
   await page.getByRole('button', { name: `向前移动 ${first.name}`, exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__hostState.projects[0].id)).toBe(first.id);

@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { StateSchema, HostEventSchema, resultSchemas, LaunchCommandSchema } from './contracts';
+import { StateSchema, HostEventSchema, resultSchemas, LaunchCommandSchema, ItemSchema } from './contracts';
 import { initialState } from './data';
 describe('boundary validation', () => {
+  it('matches native URL and embedded icon validation before saving', () => {
+    const base = { id: 'web', name: 'site', path: 'https://example.com/', kind: 'url' };
+    expect(ItemSchema.safeParse(base).success).toBe(true);
+    for (const path of ['https://example.com/a b', 'https://example.com/"x', 'https://example.com/\\x', 'file:///C:/x']) expect(ItemSchema.safeParse({ ...base, path }).success).toBe(false);
+    expect(ItemSchema.safeParse({ ...base, websiteIcon: 'data:image/png;base64,AA==' }).success).toBe(false);
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==';
+    expect(ItemSchema.safeParse({ ...base, websiteIcon: png }).success).toBe(true);
+    expect(ItemSchema.safeParse({ ...base, kind: 'file', websiteIcon: png }).success).toBe(false);
+  });
   it('preserves literal manual commands and validates working-directory controls', () => {
     const launch = { command: 'echo hello ', workingDirectory: 'C:\\Projects\\Repo' };
     expect(LaunchCommandSchema.parse(launch)).toEqual(launch);

@@ -25,7 +25,8 @@ export function Appearance({ value, onChange, preview }: { value: Preferences; o
       <div className="appearance-behavior">
       <label className="toggle-row"><span>自动收起<small>移开鼠标后，让出你的空间</small></span><input type="checkbox" checked={value.autoHide} onChange={e => change('autoHide', e.target.checked)}/><i/></label>
       <label className="toggle-row"><span>减少动态效果<small>保留反馈，减少位移动画</small></span><input type="checkbox" checked={value.reducedMotion} onChange={e => change('reducedMotion', e.target.checked)}/><i/></label>
-      <div className="adaptive-note"><Sparkles size={15}/><span>图标与文字自动适配面板空间，更多项目收纳在「更多」中。</span></div>
+      <label className="toggle-row"><span>软件最近项目<small>显示 Windows 记录中可关联的项目，并标出位置</small></span><select aria-label="最近项目数量" value={value.recentLimit ?? 8} onChange={e => change('recentLimit', Number(e.target.value))}>{[6,7,8,9,10].map(n => <option key={n} value={n}>{n} 条</option>)}</select></label>
+      <div className="adaptive-note"><Sparkles size={15}/><span>宽度随入口数量扩展至屏幕上限；超出后横向滚动，也可按住右键拖动。</span></div>
       <button className="text-button undo" onClick={() => onChange(baseline)}><RotateCcw size={13}/>撤销本次调整</button>
       <div className="energy-note"><Leaf size={12}/>静止时不播放装饰动画</div>
       </div>

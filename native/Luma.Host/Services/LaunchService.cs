@@ -40,12 +40,14 @@ public sealed class RealShellExecutor : IShellExecutor
     private static int _launchCount;
     public int LaunchCount => Volatile.Read(ref _launchCount);
 
-    public string? TryLaunch(string path)
+    public string? TryLaunch(string path) => TryLaunch(path, CancellationToken.None);
+
+    public string? TryLaunch(string path, CancellationToken callerCancellation)
     {
         // Every caller is a background launch operation. One bounded STA worker owns COM
         // objects; blocked Shell extensions cannot grow workers or stall window.sync.
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cancellation = new CancellationTokenSource();
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellation);
         var token = cancellation.Token;
         if (!Queue.Value.TryAdd(() =>
         {
@@ -66,7 +68,7 @@ public sealed class RealShellExecutor : IShellExecutor
             var psi = new ProcessStartInfo(path)
             {
                 UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(path) is { Length: > 0 } dir ? dir : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                WorkingDirectory = !WebsiteService.IsUrl(path) && Path.GetDirectoryName(path) is { Length: > 0 } dir ? dir : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             };
             using var process = Process.Start(psi);
             if (process is null)
@@ -157,10 +159,10 @@ public sealed class LaunchService
         var item = project.Items.FirstOrDefault(i => i.Id == itemId);
         if (item is null) return LaunchOutcome.Fail("PATH_NOT_FOUND", "未找到对应入口，可能已被删除。");
 
-        var invalid = PathRules.Validate(item.Path);
+        var invalid = item.Kind == "url" ? WebsiteService.IsUrl(item.Path) ? null : "网址无效。" : PathRules.Validate(item.Path);
         if (invalid is not null) return LaunchOutcome.Fail("INVALID_REQUEST", invalid);
 
-        if (!ProbeWithTimeout(item.Path))
+        if (item.Kind != "url" && !ProbeWithTimeout(item.Path))
             return LaunchOutcome.Fail("PATH_NOT_FOUND", "文件夹或文件已移动、不可达，请重新设置路径。");
 
         var error = _shell.TryLaunch(item.Path);
