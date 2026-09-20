@@ -107,7 +107,13 @@ try {
   await expect.poll(()=>execFileSync('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(shellInspection,'utf16le').toString('base64')],
     {encoding:'utf8',windowsHide:true,env:{...process.env,LUMA_SMOKE_FOLDER:path.join(data,'项目 主目录','素材')}}).trim(),{timeout:8000}).toBe('True');
   check('真实 WebView 点击经 native Shell 打开测试素材目录');
-  const launches=async()=>((await readFile(logPath,'utf8')).match(/shell.openItem 启动 project=smoke/g)??[]).length;
+  // CDP input cannot grant Windows foreground permission. An existing window may
+  // correctly return foreground=False; that is one handled attempt, not a new launch.
+  const launches=async()=>{
+    const log=await readFile(logPath,'utf8');
+    return (log.match(/shell.openItem 启动 project=smoke/g)??[]).length
+      + (log.match(/Shell 复用窗口 hwnd=\d+ foreground=False/g)??[]).length;
+  };
   const before=await launches();
   const origin=await dock.getByRole('button',{name:'打开 原生验证项目 主目录，长按展开堆叠',exact:true}).boundingBox();
   await dock.mouse.move(origin.x+origin.width/2,origin.y+origin.height/2);
@@ -121,7 +127,14 @@ try {
   await expect.poll(launches).toBe(before+1);
   await new Promise(r=>setTimeout(r,350));
   expect(await launches()).toBe(before+1);
-  check('真实 WebView 长按滑选松手只启动一次');
+  const afterReleaseLog=await readFile(logPath,'utf8');
+  if (afterReleaseLog.includes('foreground=False')) {
+    await expect(dock.getByRole('status')).toContainText('无法');
+  }
+  const countShellWindows=shellInspection.replace('($found.Count -gt 0)', '$found.Count');
+  expect(Number(execFileSync('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(countShellWindows,'utf16le').toString('base64')],
+    {encoding:'utf8',windowsHide:true,env:{...process.env,LUMA_SMOKE_FOLDER:path.join(data,'项目 主目录','素材')}}).trim())).toBe(1);
+  check('真实 WebView 长按滑选松手只处理一次；已有目录不重复创建，前置受限有反馈');
   await dock.mouse.move(origin.x+origin.width/2,origin.y+origin.height/2);
   await dock.mouse.down();
   await expect(dock.locator('[data-item-id="assets"]')).toBeVisible();

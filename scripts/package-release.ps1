@@ -76,7 +76,9 @@ try {
     try {
         foreach ($process in $running) { Stop-Process -Id $process.Id -Force; $process.WaitForExit(5000) | Out-Null }
         $env:LUMA_TEST_EXE = Join-Path $extracted 'Luma.exe'
-        npm run test:native 2>&1 | Tee-Object -FilePath $testLog
+        # Merge native streams before PowerShell 5.1 sees them (Node stack traces
+        # can otherwise be misinterpreted as PowerShell CLI XML).
+        cmd.exe /d /c "npm run test:native 2>&1" | Tee-Object -FilePath $testLog
         if ($LASTEXITCODE -ne 0) { throw "Native integration tests failed; do not publish. See $testLog" }
         $logText = Get-Content -LiteralPath $testLog -Raw
         $jsonStart = $logText.IndexOf('{')
