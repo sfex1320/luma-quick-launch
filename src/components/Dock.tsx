@@ -1,0 +1,185 @@
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { ChevronDown, Search, Settings2, MoreHorizontal, ArrowUpRight, X, FolderOpen, MousePointer2, Pencil, Check, ChevronRight } from 'lucide-react';
+import type { LaunchItem, Preferences, Project } from '../contracts';
+import { computeLayout } from '../core/layout';
+import { releaseGesture } from '../core/gesture';
+import { ItemIcon } from './ItemIcon';
+import { GroupIcon } from './GroupIcon';
+import { FolderBrowser } from './FolderBrowser';
+import { useDockMotion } from './useDockMotion';
+import { nativeMode, request, subscribeHost } from '../bridge';
+interface Props { projects: Project[]; preferences: Preferences; onOpen: (p: Project, item: LaunchItem) => void; onSettings: () => void; onSearch: () => void; onDropFiles?: (files: File[], projectId?: string) => Promise<void>; onGroup?: (sourceId: string, targetId: string) => void; onUngroup?: (projectId: string) => void; overlay?: boolean }
+export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, onDropFiles, onGroup, onUngroup, overlay = false }: Props) {
+  const container = useRef<HTMLDivElement>(null);
+  const [space, setSpace] = useState(900), [visible, setVisible] = useState(!(overlay && nativeMode)), [stack, setStack] = useState<string | null>(null), [more, setMore] = useState(false), [highlight, setHighlight] = useState<string | null>(null);
+  const [visibilityEpoch, setVisibilityEpoch] = useState(0);
+  const [hostVisibilityId, setHostVisibilityId] = useState<number | undefined>(0);
+  const [editing, setEditing] = useState(false), [browseItemId, setBrowseItemId] = useState<string | null>(null), [menuError, setMenuError] = useState('');
+  const [groupSource, setGroupSource] = useState<string | null>(null), [groupTarget, setGroupTarget] = useState<string | null>(null);
+  const menuGeneration = useRef(0);
+  const groupDrag = useRef<{ source: string; x: number; y: number; moved: boolean; button: HTMLButtonElement; pointer: number } | null>(null);
+  const [pressing, setPressing] = useState(false), [keyboard, setKeyboard] = useState(false), [importing, setImporting] = useState(false);
+  const dragLeaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const press = useRef<{ project: Project; origin: 'project' | 'entry'; long: boolean; x: number; y: number; timer: ReturnType<typeof setTimeout>; button: HTMLButtonElement; pointer: number } | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), showTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pinned = projects.filter(project => project.pinned);
+  const layout = computeLayout(p.width, p.height, p.iconSize, space, 1, 136);
+  const overflow = pinned.length > layout.capacity;
+  const shown = pinned.slice(0, overflow ? Math.max(0, layout.capacity - 1) : layout.capacity);
+  const active = projects.find(project => project.id === stack);
+  const browseItem = active?.items.find(item => item.id === browseItemId) ?? (active?.items.length === 1 && active.items[0].kind === 'folder' ? active.items[0] : undefined);
+  const [dragging, setDragging] = useState(false), [pointerInside, setPointerInside] = useState(false);
+  const clearPress = () => { const prev = press.current; if (prev) { clearTimeout(prev.timer); press.current = null; if (prev.button.hasPointerCapture(prev.pointer)) prev.button.releasePointerCapture(prev.pointer); } setPressing(false); setHighlight(null); };
+  const clearGroupDrag = () => { const record = groupDrag.current; groupDrag.current = null; if (record?.button.hasPointerCapture(record.pointer)) record.button.releasePointerCapture(record.pointer); setGroupSource(null); setGroupTarget(null); };
+  const close = () => { menuGeneration.current++; clearPress(); clearGroupDrag(); setStack(null); setBrowseItemId(null); setMenuError(''); setMore(false); };
+  const showStack = (id: string | null) => { menuGeneration.current++; setBrowseItemId(null); setMenuError(''); setStack(id); setMore(false); };
+  const { present, wrap, getTranslationY, resumeEntrance } = useDockMotion({ visible, reducedMotion: p.reducedMotion, waitForLayout: overlay && nativeMode, onExited: close });
+  useEffect(() => {
+    const element = container.current; if (!element) return;
+    let previousWidth = -1;
+    const observer = new ResizeObserver(entries => { const width = entries[0].contentRect.width; if (width !== previousWidth) { previousWidth = width; clearPress(); setSpace(width); } });
+    observer.observe(element);
+    return () => { observer.disconnect(); clearTimeout(hideTimer.current); clearTimeout(showTimer.current); clearTimeout(dragLeaveTimer.current); if (press.current) clearTimeout(press.current.timer); };
+  }, []);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { clearTimeout(showTimer.current); if (editing) { clearPress(); clearGroupDrag(); setEditing(false); } else if (stack || more) close(); else { close(); setVisible(false); } } };
+    const blur = () => { clearGroupDrag(); clearPress(); setKeyboard(false); };
+    window.addEventListener('keydown', key); window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', key); window.removeEventListener('blur', blur); };
+  }, [stack, more, editing]);
+  useEffect(() => subscribeHost(event => { if (overlay && event.event === 'window.visibility') { clearTimeout(hideTimer.current); clearTimeout(showTimer.current); clearPress(); setVisible(event.data.visible); setHostVisibilityId(event.data.visibilityId); setVisibilityEpoch(epoch => epoch + 1); if (!event.data.visible) { clearGroupDrag(); setEditing(false); setDragging(false); setKeyboard(false); } } }), [overlay]);
+  // Commit-time cleanup is essential: a passive effect can send yesterday's
+  // `visible=false` with today's expanded DOM and immediately hide the HWND.
+  useLayoutEffect(() => {
+    if (!overlay || !nativeMode || !container.current) return;
+    let previous = '';
+    let disposed = false;
+    const sync = () => {
+      const rects = [...document.querySelectorAll<HTMLElement>('[data-native-hit]')].map(el => { const r = el.getBoundingClientRect(); const y = r.y - (wrap.current?.contains(el) ? getTranslationY() : 0); return { x: r.x, y, width: r.width, height: r.height }; });
+      // Reserve the upward path once, including reversals with an open, wider stack.
+      if (present && wrap.current) for (const el of wrap.current.querySelectorAll<HTMLElement>('[data-native-hit]')) {
+        const r = el.getBoundingClientRect(); const bottom = r.bottom - getTranslationY();
+        rects.push({ x: r.x, y: 0, width: r.width, height: Math.max(0, bottom) });
+      }
+      const data = { expanded: present, rects, visibilityId: hostVisibilityId, interacting: visible && present && (editing || dragging || importing || pressing || keyboard || (pointerInside && (!!stack || more))) };
+      const text = JSON.stringify(data); if (text === previous) return; previous = text;
+      void request('window.sync', data).then(result => { if (!disposed && visible && present && result.applied) resumeEntrance(); }).catch(() => { /* The host owns reconnection status. No polling loop. */ });
+    };
+    const observer = new ResizeObserver(sync); container.current.querySelectorAll('[data-native-hit]').forEach(el => observer.observe(el));
+    // 原生 toast 在 Dock 外渲染；必须随出现/消失更新 HWND 裁剪，否则错误提示不可见。
+    const mutations = new MutationObserver(() => { document.querySelectorAll('[data-native-hit]').forEach(el => observer.observe(el)); sync(); });
+    mutations.observe(document.getElementById('root')!, { childList: true, subtree: true });
+    sync(); window.addEventListener('resize', sync);
+    const element = container.current; element.addEventListener('animationend', sync);
+    return () => { disposed = true; mutations.disconnect(); observer.disconnect(); window.removeEventListener('resize', sync); element.removeEventListener('animationend', sync); };
+  }, [visible, present, visibilityEpoch, hostVisibilityId, stack, more, p, overlay, projects, dragging, importing, pressing, keyboard, editing, pointerInside, getTranslationY, resumeEntrance, wrap]);
+  const begin = (event: PointerEvent<HTMLButtonElement>, project: Project, origin: 'project' | 'entry' = 'project') => {
+    if (event.button !== 0) return;
+    clearPress(); clearTimeout(hideTimer.current);
+    if (editing && origin === 'project') {
+      clearGroupDrag(); event.currentTarget.setPointerCapture(event.pointerId);
+      groupDrag.current = { source: project.id, x: event.clientX, y: event.clientY, moved: false, button: event.currentTarget, pointer: event.pointerId };
+      setGroupSource(project.id); return;
+    }
+    setMore(false);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const record = { project, origin, long: false, x: event.clientX, y: event.clientY, button: event.currentTarget, pointer: event.pointerId, timer: setTimeout(() => {}, 0) };
+    record.timer = setTimeout(() => { record.long = true; if (origin === 'project') showStack(project.id); }, 300);
+    press.current = record;
+    setPressing(true);
+  };
+  const move = (event: PointerEvent) => {
+    const drag = groupDrag.current;
+    if (drag) { drag.moved ||= Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 6; const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject; setGroupTarget(drag.moved && target !== drag.source ? target ?? null : null); return; }
+    const record = press.current; if (!record) return;
+    if (!record.long && Math.hypot(event.clientX - record.x, event.clientY - record.y) > 6) { clearPress(); return; }
+    const hit = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-item-id]');
+    setHighlight(record.long && hit?.dataset.projectId === record.project.id ? hit.dataset.itemId ?? null : null);
+  };
+  const activateEntry = (project: Project, child: HTMLElement) => {
+    if (child.dataset.folderItemId && child.dataset.itemId) void openDirectory(project.id, child.dataset.folderItemId, child.dataset.itemId);
+    else { const item = project.items.find(item => item.id === child.dataset.itemId); if (item) open(project, item); }
+  };
+  const openDirectory = async (projectId: string, itemId: string, entryId: string) => {
+    const generation = menuGeneration.current;
+    setMenuError('');
+    try { const result = await request('folder.open', { projectId, itemId, entryId }); if (result.accepted && generation === menuGeneration.current) close(); }
+    catch (error) { if (generation === menuGeneration.current) setMenuError((error as Error).message); }
+  };
+  const end = (event: PointerEvent) => {
+    const drag = groupDrag.current;
+    if (drag) {
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject;
+      clearGroupDrag();
+      if (drag.moved && target && target !== drag.source) { onGroup?.(drag.source, target); close(); }
+      else if (!drag.moved) showStack(drag.source);
+      return;
+    }
+    const record = press.current; if (!record) return;
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const child = element?.closest<HTMLElement>('[data-item-id]');
+    const target = child?.dataset.projectId === record.project.id ? 'child' : record.button.contains(element ?? null) ? 'origin' : 'outside';
+    const action = record.origin === 'entry' ? (target === 'child' && (record.long || record.button.contains(element)) ? 'child' : 'cancel') : releaseGesture(record.long, target, false);
+    clearPress();
+    if (action === 'root') { onOpen(record.project, record.project.items[0]); setStack(null); }
+    else if (action === 'child' && child) activateEntry(record.project, child);
+    else if (action === 'cancel') setStack(null);
+  };
+  const open = (project: Project, item: LaunchItem) => { onOpen(project, item); close(); };
+  return <div ref={container} className={`dock-container ${overlay ? 'overlay-dock' : ''} ${dragging ? 'drop-active' : ''}`}
+    onKeyDownCapture={event => { if (event.key !== 'Escape') { setKeyboard(true); clearTimeout(hideTimer.current); } }}
+    onFocusCapture={event => { if (event.target.matches(':focus-visible')) { setKeyboard(true); clearTimeout(hideTimer.current); } }}
+    onPointerDownCapture={() => setKeyboard(false)}
+    onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboard(false); }}
+    onDragOver={event => { if (!event.dataTransfer.types.includes('Files')) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'; clearTimeout(hideTimer.current); clearTimeout(dragLeaveTimer.current); setDragging(true); setVisible(true); }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { clearTimeout(dragLeaveTimer.current); dragLeaveTimer.current = setTimeout(() => setDragging(false), 120); } }}
+    onDrop={async event => { event.preventDefault(); event.stopPropagation(); clearTimeout(dragLeaveTimer.current); setDragging(false); const files = Array.from(event.dataTransfer.files); const projectId = (event.target as HTMLElement).closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject; if (!files.length || importing) return; setImporting(true); try { await onDropFiles?.(files, projectId); } finally { setImporting(false); } }}>
+    <div className="dock-hotzone" onPointerEnter={() => { clearTimeout(hideTimer.current); if (overlay && nativeMode) return; clearTimeout(showTimer.current); showTimer.current = setTimeout(() => setVisible(true), 180); }} onPointerLeave={() => clearTimeout(showTimer.current)}>
+      <button data-native-hit aria-label={visible ? '收起面板' : '展开面板'} className="dock-handle" onClick={() => { clearTimeout(showTimer.current); clearTimeout(hideTimer.current); close(); setVisible(!visible); }}/>
+    </div>
+    {present && <div ref={wrap} className={`dock-wrap ${visible ? '' : 'dock-closing'}`} onPointerEnter={() => { setPointerInside(true); clearTimeout(hideTimer.current); }} onPointerMove={event => { if (!visible && (event.movementX || event.movementY)) setVisible(true); }} onPointerLeave={() => { setPointerInside(false); if (!(overlay && nativeMode) && p.autoHide && !press.current && !dragging && !importing && !keyboard && !editing) hideTimer.current = setTimeout(() => setVisible(false), 650); }}>
+      <nav aria-label="快捷启动面板" data-native-hit className={`dock glass material-${p.material} ${editing ? 'dock-editing' : ''}`} style={{ width: layout.width, height: layout.height, borderRadius: p.radius, '--dock-icon': `${layout.icon}px`, '--dock-font': `${layout.font}px` } as CSSProperties}>
+        <div className="dock-launchers">
+        {shown.map(project => <div className={`dock-slot ${groupSource === project.id ? 'group-drag-source' : ''} ${groupTarget === project.id ? 'group-drop-target' : ''}`} data-drop-project={project.id} key={project.id} style={{ width: layout.cell }}>
+          <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); showStack(project.id); }} onClick={event => { if (event.detail === 0) { if (editing) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>
+            <GroupIcon projectId={project.id} items={project.items} color={project.color} size={layout.icon}/>
+            <span className="dock-label">{project.name}</span>
+          </button>
+          <button className="stack-chevron" aria-label={`展开 ${project.name} 堆叠`} onClick={() => { clearTimeout(hideTimer.current); showStack(stack === project.id ? null : project.id); }}><ChevronDown size={11}/></button>
+        </div>)}
+        {overflow && <button className="dock-more" aria-label="更多项目" onClick={() => { setMore(!more); setStack(null); }}><MoreHorizontal size={25}/><span>更多</span></button>}
+        {!pinned.length && <span className="dock-empty">拖入文件夹、软件或文件</span>}
+        </div>
+        <div className="dock-tools" role="group" aria-label="面板工具">
+        <button className="dock-action" aria-label="搜索项目" onClick={onSearch}><Search size={19}/></button>
+        <button className="dock-action" aria-label={editing ? '完成整理' : '整理图标'} aria-pressed={editing} onClick={() => { close(); setEditing(!editing); }}>{editing ? <Check size={19}/> : <Pencil size={18}/>}</button>
+        <button className="dock-action" aria-label="面板设置" onClick={onSettings}><Settings2 size={19}/></button>
+        </div>
+      </nav>
+      {editing && <div data-native-hit className="dock-edit-hint">把图标拖到另一个图标上成组 · 完成整理后恢复快捷启动</div>}
+      {dragging && <div data-native-hit className="dock-drop-hint">松手添加快捷项 · 拖到已有图标可加入堆叠</div>}
+      {active && <section aria-label={`${active.name} 文件夹堆叠`} data-native-hit className={`stack-panel glass material-${p.material}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 220}px)` } as CSSProperties}>
+        <header><div className="stack-heading"><span className={`project-dot dot-${active.color}`}/><strong>{active.name}</strong><span>{active.items.length} 个入口</span></div><button className="icon-button" aria-label="关闭堆叠" onClick={close}><X size={16}/></button></header>
+        {menuError && <p className="folder-browser-message" role="alert">{menuError}</p>}
+        {browseItem ? <FolderBrowser key={`${active.id}/${browseItem.id}`} projectId={active.id} item={browseItem} color={active.color} highlight={highlight}
+          onOpen={entryId => void openDirectory(active.id, browseItem.id, entryId)} onBackToGroup={active.items.length > 1 ? () => setBrowseItemId(null) : undefined}
+          onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>
+          : <>
+        <div className="stack-items launch-grid">
+          {active.items.map((item, index) => <div className="group-entry-row" key={item.id}><button data-item-id={item.id} data-project-id={active.id} className={`stack-item ${highlight === item.id ? 'selected' : ''}`}
+            onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress} onLostPointerCapture={clearPress}
+            onClick={event => { if (event.detail === 0) open(active, item); }} title={item.path}>
+            <ItemIcon projectId={active.id} itemId={item.id} pathKey={item.path} kind={item.kind} color={active.color} size={38}/><span><strong>{item.name}</strong><small>{item.path}</small></span><span className="item-index">{String(index + 1).padStart(2, '0')}</span><ArrowUpRight size={15}/>
+          </button>{item.kind === 'folder' && <button className="directory-browse icon-button" aria-label={`浏览 ${item.name} 子目录`} onClick={() => { clearPress(); setBrowseItemId(item.id); }}><ChevronRight size={17}/></button>}</div>)}
+        </div>
+        <footer><button data-item-id={active.items[0].id} data-project-id={active.id} className={`text-button directory-open-current ${highlight === active.items[0].id ? 'selected' : ''}`} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress} onLostPointerCapture={clearPress} onClick={event => { if (event.detail === 0) open(active, active.items[0]); }}><FolderOpen size={14}/>打开默认入口</button><span><MousePointer2 size={12}/>滑向目标，松手打开</span></footer>
+        </>}
+        {active.items.length > 1 && onUngroup && <div className="stack-group-actions"><span>组内入口仅保存引用</span><button className="text-button" onClick={() => { onUngroup(active.id); close(); }}>拆成独立图标</button></div>}
+      </section>}
+      {more && <section className={`more-panel glass material-${p.material}`} data-native-hit aria-label="更多项目列表">{pinned.slice(shown.length).map(project => <button key={project.id} data-drop-project={project.id}
+        className={groupTarget === project.id ? 'group-drop-target' : ''}
+        onPointerDown={event => { if (editing) begin(event, project); }} onPointerMove={move} onPointerUp={end} onPointerCancel={clearGroupDrag} onLostPointerCapture={clearGroupDrag}
+        onClick={event => { if (!editing || event.detail === 0) showStack(project.id); }}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={30}/>{project.name}<ChevronDown size={14}/></button>)}</section>}
+    </div>}
+  </div>;
+}

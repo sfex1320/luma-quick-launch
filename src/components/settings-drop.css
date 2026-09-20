@@ -1,0 +1,8 @@
+.settings-drop-guide, .editor-drop-guide { padding: 16px 20px; margin-bottom: 20px; border: 1px dashed #89958d; border-radius: 12px; background: #f7faf6; color: #28312b; font-size: 13px; line-height: 1.6; }
+.settings-drop-guide p, .editor-drop-guide p { margin: 5px 0 0; }
+.editor-drop-guide { margin-top: 12px; margin-bottom: 14px; padding: 12px 14px; }
+.cp-content.settings-drop-active { box-shadow: inset 0 0 0 3px #3b8b65; }
+.project-card.settings-drop-active, .editor-drop-active .editor-drop-guide { outline: 3px solid #3b8b65; outline-offset: 2px; background: #e6f6eb; }
+.project-drag-handle { cursor: grab; font-size: 20px; line-height: 1; }
+.project-drag-handle:active { cursor: grabbing; }
+[data-theme="dark"] .settings-drop-guide, [data-theme="dark"] .editor-drop-guide { background: #232b25; color: #dae9dd; border-color: #728579; }

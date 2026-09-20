@@ -1,0 +1,12 @@
+.group-icon{display:inline-flex;position:relative;align-items:center;justify-content:center;flex-shrink:0;background:linear-gradient(145deg,rgba(255,255,255,.9),rgba(215,231,234,.65));border:1px solid rgba(255,255,255,.8);box-shadow:0 3px 8px #1d41451c,inset 0 0 0 1px #52777e1a;vertical-align:middle}
+.group-icon-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px;align-items:center;justify-items:center}
+.group-icon-count{position:absolute;bottom:-3px;right:-4px;min-width:1.5em;height:1.5em;padding:0 3px;border:1px solid #fff;border-radius:20px;background:#273d39;color:#fff;font-weight:750;line-height:1.35;text-align:center}
+.project-group-actions{display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap}
+.project-group-actions button{font-size:11px;border:1px solid #d5d5d1;background:white;border-radius:5px;padding:6px 8px;color:#333}
+.project-group-actions button:hover{border-color:#151515;background:#f2f4f0}
+.group-targets{display:grid;gap:8px;padding-top:12px;max-height:55vh;overflow:auto}
+.group-targets button{display:flex;align-items:center;gap:14px;text-align:left;border:1px solid #d5d5d1;border-radius:8px;padding:12px;background:white}
+.group-targets button:hover{border-color:#151515;background:#f2f4f0}
+.group-targets button span:last-child{display:grid;gap:4px}
+.group-targets small{font-size:12px;color:#73736c}
+.group-description{font-size:13px;color:#666;line-height:1.7}

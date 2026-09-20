@@ -1,0 +1,641 @@
+{
+  "app.getState": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "number",
+        "const": 1
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "projects": {
+        "maxItems": 100,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "color": {
+              "type": "string",
+              "enum": [
+                "mint",
+                "blue",
+                "violet",
+                "peach",
+                "gold"
+              ]
+            },
+            "pinned": {
+              "type": "boolean"
+            },
+            "items": {
+              "minItems": 1,
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "folder",
+                      "file",
+                      "app"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "path",
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "description",
+            "color",
+            "pinned",
+            "items"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "preferences": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number",
+            "minimum": 320,
+            "maximum": 1120
+          },
+          "height": {
+            "type": "number",
+            "minimum": 64,
+            "maximum": 160
+          },
+          "iconSize": {
+            "type": "number",
+            "minimum": 24,
+            "maximum": 64
+          },
+          "radius": {
+            "type": "number",
+            "minimum": 12,
+            "maximum": 32
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "frost",
+              "soft",
+              "solid"
+            ]
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ]
+          },
+          "reducedMotion": {
+            "type": "boolean"
+          },
+          "autoHide": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "iconSize",
+          "radius",
+          "material",
+          "theme",
+          "reducedMotion",
+          "autoHide"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "revision",
+      "projects",
+      "preferences"
+    ],
+    "additionalProperties": false
+  },
+  "app.saveState": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "schemaVersion": {
+        "type": "number",
+        "const": 1
+      },
+      "revision": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "projects": {
+        "maxItems": 100,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "color": {
+              "type": "string",
+              "enum": [
+                "mint",
+                "blue",
+                "violet",
+                "peach",
+                "gold"
+              ]
+            },
+            "pinned": {
+              "type": "boolean"
+            },
+            "items": {
+              "minItems": 1,
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "folder",
+                      "file",
+                      "app"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "path",
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "description",
+            "color",
+            "pinned",
+            "items"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "preferences": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number",
+            "minimum": 320,
+            "maximum": 1120
+          },
+          "height": {
+            "type": "number",
+            "minimum": 64,
+            "maximum": 160
+          },
+          "iconSize": {
+            "type": "number",
+            "minimum": 24,
+            "maximum": 64
+          },
+          "radius": {
+            "type": "number",
+            "minimum": 12,
+            "maximum": 32
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "frost",
+              "soft",
+              "solid"
+            ]
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark"
+            ]
+          },
+          "reducedMotion": {
+            "type": "boolean"
+          },
+          "autoHide": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "iconSize",
+          "radius",
+          "material",
+          "theme",
+          "reducedMotion",
+          "autoHide"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "revision",
+      "projects",
+      "preferences"
+    ],
+    "additionalProperties": false
+  },
+  "shell.openItem": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "shell.getIcon": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "dataUrl": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 350000
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "dataUrl"
+    ],
+    "additionalProperties": false
+  },
+  "shell.pickFolder": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "path",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  "shell.pickFiles": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "maxItems": 100,
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "folder",
+            "file",
+            "app"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "shell.resolveDrop": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "maxItems": 100,
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "folder",
+            "file",
+            "app"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "folder.list": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "folderId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "name": {
+        "type": "string"
+      },
+      "entries": {
+        "maxItems": 200,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "folder",
+                "file",
+                "app"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "parentId": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "folderId",
+      "name",
+      "entries",
+      "parentId",
+      "truncated"
+    ],
+    "additionalProperties": false
+  },
+  "folder.open": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "search.query": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "results": {
+        "maxItems": 60,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": "string"
+            },
+            "subtitle": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "folder",
+                "file",
+                "app",
+                "setting"
+              ]
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "shortcut",
+                "index",
+                "settings"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "subtitle",
+            "kind",
+            "source"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "indexAvailable": {
+        "type": "boolean"
+      },
+      "note": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "results",
+      "indexAvailable",
+      "note"
+    ],
+    "additionalProperties": false
+  },
+  "search.open": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "window.closeSearch": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "window.sync": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "applied": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "applied"
+    ],
+    "additionalProperties": false
+  },
+  "window.openSettings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  }
+}

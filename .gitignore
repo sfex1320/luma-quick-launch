@@ -1,0 +1,33 @@
+node_modules/
+dist/
+test-results/
+test-results-*/
+playwright-report/
+*.tsbuildinfo
+.DS_Store
+
+# native kernel build outputs
+native/**/bin/
+native/**/obj/
+native/.vs/
+native/artifacts/
+APP/
+releases/
+
+# Local configuration, credentials and machine-specific evidence
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+*.log
+docs/evidence/
+docs/screenshots/
+docs/previews/native-*.png
+docs/*regression*.json
+docs/*native*.json
+docs/*ole*.json
+docs/idle-performance*.json
+docs/running-pid.txt
+docs/user-state-before.sha256

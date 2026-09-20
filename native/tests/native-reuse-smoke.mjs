@@ -1,0 +1,81 @@
+// Serial, real published host + Windows Shell + isolated WinForms application.
+import { chromium, expect } from '@playwright/test';
+import { spawn, execFileSync } from 'node:child_process';
+import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { randomUUID, createHash } from 'node:crypto';
+const root=path.resolve(import.meta.dirname,'../..');
+const data=path.join(tmpdir(),`luma-reuse-smoke-${randomUUID()}`), fixture=path.join(data,'同名目录'), other=path.join(data,'其他','同名目录');
+await mkdir(fixture,{recursive:true});await mkdir(other,{recursive:true});
+const dotnet=process.env.LUMA_DOTNET??path.join(process.env.LOCALAPPDATA,'Microsoft','dotnet','dotnet.exe');
+execFileSync(dotnet,['publish',path.join(root,'native/tests/ReuseWindowProbe/ReuseWindowProbe.csproj'),'-c','Release','-o',path.join(data,'probe'),'--artifacts-path',path.join(data,'build'),'--verbosity','quiet'],{cwd:path.join(root,'native'),windowsHide:true,stdio:'pipe'});
+const probeExe=path.join(data,'probe/ReuseWindowProbe.exe');
+const probe=(action,hwnd=0)=>JSON.parse(execFileSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(root,'native/tests/Invoke-ReuseProbe.ps1'),'-Action',action,'-FixtureRoot',data,'-WindowHandle',String(hwnd)],{encoding:'utf8',windowsHide:true}));
+probe('Prepare');
+const state=JSON.parse(await readFile(path.join(root,'docs/contracts/empty-state.json'),'utf8'));
+state.preferences.autoHide=false;
+state.projects=[['folder',fixture,'folder'],['other',other,'folder'],['app',probeExe,'app'],['link',path.join(data,'fixture.lnk'),'app'],['document',path.join(data,'document.lnk'),'app']].map(([id,target,kind])=>({id,name:id,description:'',color:'mint',pinned:true,items:[{id:'main',name:id,kind,path:target}]}));
+await writeFile(path.join(data,'state.json'),JSON.stringify(state));
+const userConfig=path.join(process.env.LOCALAPPDATA,'Luma/state.json');
+const optionalRead=async p=>{try{return await readFile(p)}catch(e){if(e.code==='ENOENT')return null;throw e}};
+const before=await optionalRead(userConfig), hash=bytes=>bytes?createHash('sha256').update(bytes).digest('hex'):null;
+const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));
+const child=spawn(path.join(root,'APP/native/Luma/Luma.exe'),['--settings'],{env:{...process.env,DOTNET_ROOT:path.dirname(dotnet),LUMA_DATA_DIRECTORY:data,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`},windowsHide:true,stdio:'ignore'});
+const evidence={date:new Date().toISOString(),data,pid:child.pid,hostSha256:hash(await readFile(path.join(root,'APP/native/Luma/Luma.dll'))),checks:[]};
+let browser,page;
+const check=message=>{evidence.checks.push(message);console.log(`PASS ${message}`)};
+try {
+ await expect.poll(async()=>{try{return(await fetch(`http://127.0.0.1:${port}/json/version`)).ok}catch{return false}},{timeout:30000}).toBe(true);
+ browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+ await expect.poll(()=>browser.contexts().flatMap(c=>c.pages()).some(p=>p.url().includes('mode=native')&&!p.url().includes('view=dock'))).toBe(true);
+ page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('mode=native')&&!p.url().includes('view=dock'));
+ const request=(method,params)=>page.evaluate(({method,params})=>new Promise((resolve,reject)=>{
+  const id=crypto.randomUUID();let timer;
+  const listener=e=>{const v=e.data;if(v?.type!=='response'||v.id!==id)return;clearTimeout(timer);window.chrome.webview.removeEventListener('message',listener);v.ok?resolve(v.result):reject(new Error(JSON.stringify(v.error)))};
+  window.chrome.webview.addEventListener('message',listener);
+  timer=setTimeout(()=>{window.chrome.webview.removeEventListener('message',listener);reject(new Error('Bridge timeout'))},12000);
+  window.chrome.webview.postMessage({protocol:1,type:'request',id,method,params});
+ }),{method,params});
+ const open=id=>request('shell.openItem',{projectId:id,itemId:'main'});
+ const focusHost=async()=>{await request('window.openSettings',{section:'projects'});await page.bringToFront()};
+ await open('other');await open('folder');
+ await expect.poll(()=>probe('Snapshot').folders.filter(w=>w.path===fixture).length,{timeout:15000}).toBe(1);
+ let snapshot=probe('Snapshot'),folder=snapshot.folders.find(w=>w.path===fixture);const originalFolder=folder.hwnd;
+ probe('Minimize',originalFolder);await focusHost();await open('folder');
+ await expect.poll(()=>{const s=probe('Snapshot');return s.folders.some(w=>w.hwnd===originalFolder&&!w.minimized)&&s.foreground===originalFolder},{timeout:10000}).toBe(true);
+ expect(probe('Snapshot').folders.filter(w=>w.path===fixture)).toHaveLength(1);
+ check('同名不同路径目录不混淆；最小化目标目录恢复到前台且 HWND 不变');
+ const listing=await request('folder.list',{projectId:'folder',itemId:'main'});
+ await focusHost();await request('folder.open',{projectId:'folder',itemId:'main',entryId:listing.folderId});
+ const results=await request('search.query',{query:'folder',scope:'shortcuts'});
+ const result=results.results.find(r=>r.title==='folder');expect(result).toBeTruthy();
+ await focusHost();await request('search.open',{resultId:result.id});
+ expect(probe('Snapshot').folders.filter(w=>w.path===fixture)).toHaveLength(1);
+ check('folder.open 与 search.open 共用已打开目录，无额外资源管理器窗口');
+ await Promise.all([open('app'),open('app'),open('app'),open('link')]);
+ await expect.poll(()=>probe('Snapshot').apps.filter(w=>w.hwnd!==0).length,{timeout:15000}).toBe(1);
+ const app=probe('Snapshot').apps[0];
+ expect((await readdir(path.join(data,'probe'))).filter(name=>name.startsWith('launch-'))).toHaveLength(1);
+ check('冷启动连续请求含 exe/lnk 别名只启动一个隔离测试进程');
+ probe('Minimize',app.hwnd);evidence.beforeAppFocus=probe('Snapshot');await focusHost();evidence.afterAppFocus=probe('Snapshot');await open('link');
+ await expect.poll(()=>{const s=probe('Snapshot');return s.apps.length===1&&s.apps[0].pid===app.pid&&!s.apps[0].minimized&&s.foreground===app.hwnd},{timeout:10000}).toBe(true);
+ expect(probe('Snapshot').apps[0].topmost).toBe(false);
+ check('无参数 .lnk 恢复已有软件到前台，PID/HWND 不变且未永久置顶');
+ probe('Maximize',app.hwnd);await focusHost();await open('app');
+ expect(probe('Snapshot').apps[0].maximized).toBe(true);
+ check('复用已最大化软件保留最大化状态');
+ await open('document');
+ await expect.poll(()=>probe('Snapshot').apps.length,{timeout:10000}).toBe(2);
+ const records=await Promise.all((await readdir(path.join(data,'probe'))).filter(n=>n.startsWith('launch-')).map(async n=>JSON.parse(await readFile(path.join(data,'probe',n),'utf8'))));
+ expect(records.some(r=>r.args.join(' ')==='--document isolated-project')).toBe(true);
+ check('带项目参数快捷方式仍传递原始参数，不误激活已有普通软件实例');
+ expect(hash(await optionalRead(userConfig))).toBe(hash(before));check('用户配置未变；仅启动临时测试目录与隔离测试应用');
+ evidence.result='passed';evidence.finalSnapshot=probe('Snapshot');
+} catch(error) {evidence.result='failed';evidence.failureSnapshot=probe('Snapshot');evidence.error=String(error.stack??error);throw error}
+finally {
+ try{probe('Cleanup')}catch(error){evidence.cleanupError=String(error)}
+ if(browser)await browser.close();child.kill();
+ await writeFile(path.join(data,'result.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
+}

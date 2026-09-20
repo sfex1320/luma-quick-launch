@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "revision": 0,
+  "projects": [],
+  "preferences": {
+    "width": 640,
+    "height": 88,
+    "iconSize": 40,
+    "radius": 22,
+    "material": "frost",
+    "theme": "light",
+    "reducedMotion": false,
+    "autoHide": true
+  }
+}
