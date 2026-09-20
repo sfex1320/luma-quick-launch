@@ -50,7 +50,7 @@ async function setup(page: Page) {
         if (host.__holdMutation) host.__finishMutation = finish; else setTimeout(finish, 5);
         return;
       }
-      const result = req.method === 'window.sync' ? { applied: true } : req.method === 'project.detectTest' ? { task: null } : req.method === 'folder.getThumbnail' || req.method === 'shell.getIcon' ? { dataUrl: null } : { accepted: true };
+      const result = req.method === 'window.sync' ? { applied: true } : req.method === 'project.detectTest' ? { task: host.__showTask ? { id: 'test-task', label: '打开项目软件', command: 'pnpm run tauri dev' } : null } : req.method === 'folder.getThumbnail' || req.method === 'shell.getIcon' ? { dataUrl: null } : { accepted: true };
       setTimeout(() => respond(result), 2);
     } };
   }, seed);
@@ -62,6 +62,38 @@ async function setup(page: Page) {
 }
 const tile = (page: Page, id: string) => page.locator(`.stack-item[data-item-id="${id}"]`);
 const calls = (page: Page, method: string) => page.evaluate(method => (window as any).__calls.filter((entry: any) => entry.method === method), method);
+
+test('directory tools occupy a single compact row without persistent command or move notes', async ({ page }) => {
+  await page.addInitScript(() => { (window as any).__showTask = true; });
+  await setup(page);
+  const labels = ['打开当前目录', '打开项目软件', '新建文件夹', '复制地址'];
+  const boxes = [];
+  for (const name of labels) { const button = page.getByRole('button', { name, exact: true }); await expect(button).toBeVisible(); boxes.push((await button.boundingBox())!); }
+  expect(Math.max(...boxes.map(b => b.y)) - Math.min(...boxes.map(b => b.y))).toBeLessThan(2);
+  await expect(page.locator('.directory-test-command')).toHaveCount(0);
+  await expect(page.getByText('拖到这里后确认 · 不覆盖同名文件', { exact: true })).toHaveCount(0);
+  const footer = await page.locator('.directory-footer').boundingBox(); expect(footer!.height).toBeLessThanOrEqual(42);
+  await page.setViewportSize({ width: 360, height: 720 });
+  await expect(page.locator('.directory-footer-actions')).toHaveCSS('flex-wrap', 'nowrap');
+  const heights = await page.locator('.directory-footer-actions>button').evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().top));
+  expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(2);
+});
+
+test('held pointer release invokes copy and new-folder footer actions exactly once', async ({ page }) => {
+  await setup(page);
+  async function slide(name: string) {
+    const source = (await tile(page, 'source-file-0').boundingBox())!;
+    await page.mouse.move(source.x + 25, source.y + 25); await page.mouse.down(); await page.waitForTimeout(360);
+    const destination = (await page.getByRole('button', { name, exact: true }).boundingBox())!;
+    await page.mouse.move(destination.x + destination.width / 2, destination.y + destination.height / 2, { steps: 4 }); await page.mouse.up();
+  }
+  await slide('复制地址'); await expect.poll(() => calls(page, 'folder.getPath')).toHaveLength(1);
+  await expect(page.locator('.stack-panel')).toBeVisible(); expect(await calls(page, 'folder.open')).toHaveLength(0);
+  await slide('新建文件夹'); await expect(page.getByRole('form', { name: '新建实际文件夹' })).toBeVisible();
+  expect(await calls(page, 'folder.createFolder')).toHaveLength(0);
+  await page.getByLabel('新名称', { exact: true }).fill('松手新建'); await page.getByRole('button', { name: '确认新建', exact: true }).click();
+  await expect.poll(() => calls(page, 'folder.createFolder')).toHaveLength(1); expect(await calls(page, 'folder.open')).toHaveLength(0);
+});
 async function context(page: Page, id: string) { await tile(page, id).click({ button: 'right' }); await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible(); }
 test.afterEach(async ({ page }) => { expect(await page.evaluate(() => (window as any).__violations ?? [])).toEqual([]); });
 

@@ -7,7 +7,7 @@ import { SplitFolderTile } from './SplitFolderTile';
 import { clearFolderThumbnails } from './folder-thumbnail-cache';
 import './folder-browser.css';
 import { useRightPan } from './useRightPan';
-import { DirectoryActions, useDirectoryActions } from './DirectoryActions';
+import { DirectoryActionButtons, DirectoryActions, useDirectoryActions } from './DirectoryActions';
 
 interface Props {
   projectId: string; item: LaunchItem; color: Color; highlight: string | null;
@@ -108,8 +108,8 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
         <button data-item-id={listing.folderId} data-project-id={projectId} data-folder-item-id={item.id} className={`text-button directory-open-current ${highlight === listing.folderId ? 'selected' : ''}`} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(listing.folderId); }}><FolderOpen size={14}/>打开当前目录</button>
         {testTask && <button data-item-id={testTask.id} data-project-id={projectId} data-folder-item-id={item.id} data-test-task-id={testTask.id} className={`text-button directory-open-current directory-run-test ${highlight === testTask.id ? 'selected' : ''}`} title={`${testTask.label} · ${testTask.command}`} disabled={runningTest}
           {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onRunTest(testTask.id); }}><Terminal size={14}/>{runningTest ? '正在打开终端…' : testTask.label === '运行测试' ? '测试软件' : testTask.label === '手动启动' ? '打开项目软件' : testTask.label}</button>}
-      </div><span>{listing.entries.length} 项 · 按住滑选，松手打开</span></footer>
-      {testTask && <p className="directory-test-command" title={testTask.command}>{testTask.command} · 在终端运行</p>}
+        <DirectoryActionButtons projectId={projectId} itemId={item.id} listing={listing} controller={actions} highlight={highlight} gesture={gesture}/>
+      </div></footer>
       {testError && <p className="directory-test-error" role="status">测试识别：{testError}</p>}
       <DirectoryActions listing={listing} controller={actions} showNotice={index === 0}/>
     </>}

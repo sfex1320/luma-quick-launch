@@ -1,7 +1,11 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 using Luma.Host.Bridge;
 
 namespace Luma.Host.Services;
@@ -12,7 +16,7 @@ public sealed record RecentProjectDocument(string Path, DateTimeOffset Modified)
 public interface IRecentProjectSource
 {
     string? ResolveExecutable(string savedPath, CancellationToken cancellation);
-    IEnumerable<RecentProjectDocument> ReadRecent(CancellationToken cancellation);
+    IEnumerable<RecentProjectDocument> ReadRecent(string executable, CancellationToken cancellation);
     bool IsRegularFile(string path);
 }
 
@@ -30,7 +34,7 @@ public sealed class WindowsRecentProjectSource(string? recentDirectory = null) :
             RecentProjectService.SafePath(path) && IsRegularFile(path) ? path : null;
     }
 
-    public IEnumerable<RecentProjectDocument> ReadRecent(CancellationToken cancellation)
+    public IEnumerable<RecentProjectDocument> ReadRecent(string executable, CancellationToken cancellation)
     {
         var recent = recentDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.Recent);
         if (string.IsNullOrEmpty(recent) || !Directory.Exists(recent)) yield break;
@@ -91,10 +95,131 @@ public sealed class WindowsRecentProjectSource(string? recentDirectory = null) :
     }
 }
 
+/// <summary>Reads Adobe MediaBrowser's per-application MRU. It never scans document directories.</summary>
+public sealed class WindowsAppRecentSource : IRecentProjectSource
+{
+    internal sealed record ApplicationMetadata(string? Company, string? Product, string? OriginalFilename);
+    private readonly WindowsRecentProjectSource _paths = new();
+    private readonly Func<string, CancellationToken, IEnumerable<RecentProjectDocument>> _reader;
+    private readonly Func<string, ApplicationMetadata> _metadata;
+    public WindowsAppRecentSource() : this(ReadRegistry) { }
+    internal WindowsAppRecentSource(Func<string, CancellationToken, IEnumerable<RecentProjectDocument>> reader,
+        Func<string, ApplicationMetadata>? metadata = null)
+    { _reader = reader; _metadata = metadata ?? ReadMetadata; }
+    public string? ResolveExecutable(string savedPath, CancellationToken cancellation)
+    {
+        var executable = _paths.ResolveExecutable(savedPath, cancellation);
+        var app = executable is null ? null : Application(executable, cancellation);
+        cancellation.ThrowIfCancellationRequested();
+        return app is null ? null : executable;
+    }
+    public bool IsRegularFile(string path) => _paths.IsRegularFile(path);
+
+    public IEnumerable<RecentProjectDocument> ReadRecent(string executable, CancellationToken cancellation)
+    {
+        var app = Application(executable, cancellation);
+        if (app is null) yield break;
+        foreach (var row in _reader(app, cancellation).Take(256))
+        { cancellation.ThrowIfCancellationRequested(); yield return row; }
+    }
+
+    private string? Application(string executable, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        var app = Path.GetFileName(executable).ToLowerInvariant() switch
+        {
+            "photoshop.exe" => "Photoshop",
+            "illustrator.exe" => "illustrator",
+            "indesign.exe" => "indesign",
+            _ => null,
+        };
+        if (app is null) return null;
+        try
+        {
+            var metadata = _metadata(executable);
+            cancellation.ThrowIfCancellationRequested();
+            var company = metadata.Company?.Trim();
+            var product = metadata.Product?.Trim();
+            var expectedProduct = "Adobe " + app;
+            // Local product resources establish application association, not publisher trust.
+            // Accept observed modern and historical Adobe company names without a network signature check.
+            var adobe = company is not null && new[] { "Adobe", "Adobe Inc.", "Adobe Inc", "Adobe Systems Incorporated", "Adobe Systems, Incorporated" }
+                .Contains(company, StringComparer.OrdinalIgnoreCase);
+            var productMatches = product is not null && (product.Equals(expectedProduct, StringComparison.OrdinalIgnoreCase) ||
+                product.StartsWith(expectedProduct + " ", StringComparison.OrdinalIgnoreCase));
+            return adobe && productMatches && string.Equals(metadata.OriginalFilename?.Trim(), Path.GetFileName(executable), StringComparison.OrdinalIgnoreCase)
+                ? app : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.ComponentModel.Win32Exception)
+        { return null; }
+    }
+
+    private static ApplicationMetadata ReadMetadata(string executable)
+    {
+        var info = FileVersionInfo.GetVersionInfo(executable);
+        return new(info.CompanyName, info.ProductName, info.OriginalFilename);
+    }
+
+    private static IEnumerable<RecentProjectDocument> ReadRegistry(string app, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var root = Registry.CurrentUser.OpenSubKey($@"Software\Adobe\MediaBrowser\MRU\{app}\FileList");
+        if (root is null) yield break;
+        foreach (var row in ReadRegistryRows(root, cancellation)) yield return row;
+    }
+
+    internal static IEnumerable<RecentProjectDocument> ReadRegistryRows(RegistryKey root, CancellationToken cancellation)
+    {
+        // RegEnumKeyEx is incremental; GetSubKeyNames would allocate/enumerate the entire key first.
+        var nameBuffer = new StringBuilder(256);
+        for (uint index = 0; index < 256; index++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            nameBuffer.Clear();
+            uint characters = 256;
+            var result = RegEnumKeyEx(root.Handle, index, nameBuffer, ref characters, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            if (result == 259) yield break; // ERROR_NO_MORE_ITEMS
+            if (result != 0) continue;
+            var name = nameBuffer.ToString();
+            if (!DateTimeOffset.TryParse(name, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out var modified)) continue;
+            string? path = null;
+            try { using var row = root.OpenSubKey(name); if (row is not null) path = ReadRegistryPath(row, cancellation); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+            if (!string.IsNullOrWhiteSpace(path)) yield return new(path, modified.ToUniversalTime());
+        }
+    }
+
+    internal static string? ReadRegistryPath(RegistryKey row, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        uint bytes = 0;
+        if (RegQueryValueEx(row.Handle, null, IntPtr.Zero, out var type, null, ref bytes) != 0 ||
+            type != 1 || bytes is < 2 or > 8194 || bytes % 2 != 0) return null; // REG_SZ, 4096 UTF-16 units + optional NUL
+        var buffer = new byte[bytes];
+        cancellation.ThrowIfCancellationRequested();
+        if (RegQueryValueEx(row.Handle, null, IntPtr.Zero, out type, buffer, ref bytes) != 0 ||
+            type != 1 || bytes > buffer.Length || bytes % 2 != 0) return null;
+        cancellation.ThrowIfCancellationRequested();
+        string value;
+        try { value = new UnicodeEncoding(false, false, true).GetString(buffer, 0, (int)bytes); }
+        catch (DecoderFallbackException) { return null; }
+        if (value.EndsWith('\0')) value = value[..^1];
+        return value.Length <= 4096 && !value.Contains('\0') ? value : null;
+    }
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, EntryPoint = "RegEnumKeyExW")]
+    private static extern int RegEnumKeyEx(SafeRegistryHandle key, uint index, StringBuilder name, ref uint nameLength,
+        IntPtr reserved, IntPtr keyClass, IntPtr classLength, IntPtr lastWriteTime);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, EntryPoint = "RegQueryValueExW")]
+    private static extern int RegQueryValueEx(SafeRegistryHandle key, string? name, IntPtr reserved, out uint type,
+        [Out] byte[]? data, ref uint dataLength);
+}
+
 public sealed class RecentProjectService
 {
     private sealed record Capability(string Client, string Project, string Item, string SavedPath, string Executable, string Path, DateTimeOffset Expires);
-    private const string Note = "仅按软件格式匹配 Windows 最近文档，在最多 256 条枚举样本内排序，可能遗漏更新记录；不代表软件私有最近列表。打开使用 Windows 默认文件关联。";
+    private const string Note = "来自该 Adobe 软件的本机最近列表；最多读取 256 条样本，可能遗漏更新记录。打开使用 Windows 默认文件关联。";
     private static readonly Lazy<BlockingCollection<Action>> Queue = new(() =>
     {
         var queue = new BlockingCollection<Action>(16);
@@ -118,7 +243,7 @@ public sealed class RecentProjectService
     public RecentProjectService(StateStore store, IRecentProjectSource? source = null,
         Func<string, CancellationToken, string?>? open = null, Func<DateTimeOffset>? clock = null, TimeSpan? timeout = null)
     {
-        _store = store; _source = source ?? new WindowsRecentProjectSource();
+        _store = store; _source = source ?? new WindowsAppRecentSource();
         _open = open ?? RealShellExecutor.Shared.TryLaunch;
         _clock = clock ?? (() => DateTimeOffset.UtcNow); _timeout = timeout ?? TimeSpan.FromSeconds(4);
     }
@@ -131,8 +256,8 @@ public sealed class RecentProjectService
         var executable = _source.ResolveExecutable(saved, cancel);
         var extensions = Extensions(executable);
         cancel.ThrowIfCancellationRequested();
-        if (extensions.Length == 0) return new RecentProjectListing([], "暂无法从已保存软件身份确定专属格式。" + Note);
-        var rows = _source.ReadRecent(cancel).Take(256).OrderByDescending(row => row.Modified).ToArray();
+        if (extensions.Length == 0) return new RecentProjectListing([], "该软件暂未接入可靠的专属最近文件来源。");
+        var rows = _source.ReadRecent(executable!, cancel).Take(256).OrderByDescending(row => row.Modified).ToArray();
         var selected = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
@@ -208,10 +333,6 @@ public sealed class RecentProjectService
         "photoshop.exe" => [".psd", ".psb"],
         "illustrator.exe" => [".ai", ".eps"],
         "indesign.exe" => [".indd", ".idml"],
-        "afterfx.exe" => [".aep", ".aepx"],
-        "adobe premiere pro.exe" => [".prproj"],
-        "blender.exe" => [".blend"],
-        "figma.exe" => [".fig"],
         _ => [],
     };
     internal static bool SafePath(string path)
@@ -255,7 +376,8 @@ public sealed class RecentProjectService
             throw new FolderOperationException(ProtocolErrors.Busy, "最近项目读取超时，请稍后重试。");
         }
         catch (OperationCanceledException) { throw new FolderOperationException(ProtocolErrors.Cancelled, "最近项目操作已取消。"); }
-        catch (UnauthorizedAccessException) { throw new FolderOperationException(ProtocolErrors.AccessDenied, "没有权限读取最近项目。"); }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException)
+        { throw new FolderOperationException(ProtocolErrors.AccessDenied, "没有权限读取最近项目。"); }
         catch (Exception ex) when (ex is IOException or COMException) { throw new FolderOperationException(ProtocolErrors.IoError, "最近项目暂时无法读取。"); }
     }
 }

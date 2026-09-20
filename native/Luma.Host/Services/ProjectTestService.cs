@@ -11,7 +11,8 @@ using Luma.Host.Bridge;
 namespace Luma.Host.Services;
 
 public sealed record ProjectTestTask(string Id, string Label, string Command);
-public sealed record ProjectTestCommand(string Directory, string Tool, string[] Arguments, string? ManualCommand = null);
+public enum ProjectExecutionMode { Test, Development }
+public sealed record ProjectTestCommand(string Directory, string Tool, string[] Arguments, string? ManualCommand = null, ProjectExecutionMode Mode = ProjectExecutionMode.Test);
 public interface IProjectTestProcess : IDisposable { bool HasExited { get; } }
 public interface IProjectTestTerminal { IProjectTestProcess Start(ProjectTestCommand command, CancellationToken cancellation); }
 public interface IProjectTestFiles
@@ -69,7 +70,7 @@ public sealed class RealProjectTestFiles : IProjectTestFiles
 /// <summary>Explicit-click capability execution; no scanning, command execution or installation during detection.</summary>
 public sealed class ProjectTestService
 {
-    private sealed record Detection(string Tool, string[] Arguments, string Display, string Fingerprint, LaunchConfiguration? Launch = null, string Label = "测试软件");
+    private sealed record Detection(string Tool, string[] Arguments, string Display, string Fingerprint, LaunchConfiguration? Launch = null, ProjectExecutionMode Mode = ProjectExecutionMode.Test);
     private sealed record Capability(string Client, string Project, string Item, string Folder, string Directory, Detection Detection, DateTimeOffset Expires);
     private static readonly SemaphoreSlim Workers = new(2, 2);
     private readonly object _gate = new();
@@ -107,7 +108,8 @@ public sealed class ProjectTestService
                 while (_tokens.Count >= 128) _tokens.Remove(_tokens.First().Key);
                 _tokens[id] = new(client, project, item, folder, directory, detection, _clock().AddMinutes(2));
             }
-            return new ProjectTestTask(id, detection.Launch is null ? detection.Label : "手动启动", detection.Display);
+            else _tokens[id] = previous.Value with { Expires = _clock().AddMinutes(2) };
+            return new ProjectTestTask(id, detection.Launch is not null ? "手动启动" : detection.Mode == ProjectExecutionMode.Development ? "打开项目软件" : "测试软件", detection.Display);
         }
     });
 
@@ -144,7 +146,7 @@ public sealed class ProjectTestService
         try
         {
             // PATH probing may block on disconnected shares. It never owns the capability/UI lock.
-            var process = _terminal.Start(new(directory, current.Tool, current.Arguments, current.Launch?.Command), startCancellation.Token);
+            var process = _terminal.Start(new(directory, current.Tool, current.Arguments, current.Launch?.Command, current.Mode), startCancellation.Token);
             lock (_gate) _active[directory] = process;
             return true;
         }
@@ -192,7 +194,7 @@ public sealed class ProjectTestService
         Read("Cargo.lock", 2 * 1024 * 1024);
         var go = Read("go.mod");
         Read("go.sum", 2 * 1024 * 1024);
-        var candidates = new List<(string Tool, string[] Arguments, string Display, string Label)>();
+        var candidates = new List<(string Tool, string[] Arguments, string Display, ProjectExecutionMode Mode)>();
         if (package is not null)
         {
             using var json = JsonDocument.Parse(package, new JsonDocumentOptions { MaxDepth = 32 });
@@ -235,15 +237,15 @@ public sealed class ProjectTestService
                                 build.ValueKind == JsonValueKind.Object && (Script(build, "devUrl") is not null || Script(build, "beforeDevCommand") is not null);
                         }
                     }
-                    if (tauri) candidates.Add((manager, ["run", "tauri", "dev"], $"{manager} run tauri dev", "打开项目软件"));
-                    else if (script is not null) candidates.Add((manager, ["run", script], $"{manager} run {script}", script == "test" ? "测试软件" : "打开项目软件"));
+                    if (tauri) candidates.Add((manager, ["run", "tauri", "dev"], $"{manager} run tauri dev", ProjectExecutionMode.Development));
+                    else if (script is not null) candidates.Add((manager, ["run", script], $"{manager} run {script}", script == "test" ? ProjectExecutionMode.Test : ProjectExecutionMode.Development));
                 }
             }
         }
         if (cargo is not null && Regex.IsMatch(Encoding.UTF8.GetString(cargo), @"(?m)^\s*\[(package|workspace)\]\s*(#.*)?$"))
-            candidates.Add(("cargo", ["test", "--offline"], "cargo test --offline", "测试软件"));
+            candidates.Add(("cargo", ["test", "--offline"], "cargo test --offline", ProjectExecutionMode.Test));
         if (go is not null && Regex.IsMatch(Encoding.UTF8.GetString(go), @"(?m)^\s*module\s+\S+"))
-            candidates.Add(("go", ["test", "./..."], "go test ./...", "测试软件"));
+            candidates.Add(("go", ["test", "./..."], "go test ./...", ProjectExecutionMode.Test));
         var projectNames = _files.ProjectNames(directory);
         // Only one explicitly identified test project is supported, never evaluate MSBuild while detecting.
         foreach (var name in projectNames)
@@ -254,11 +256,11 @@ public sealed class ProjectTestService
             var doc = XDocument.Load(reader);
             var explicitTest = doc.Descendants().Any(e => e.Name.LocalName == "IsTestProject" && e.Value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) &&
                 !e.AncestorsAndSelf().Any(a => a.Attribute("Condition") is not null));
-            if (explicitTest) candidates.Add(("dotnet", ["test", ".\\" + name, "--no-restore"], $"dotnet test \"{name}\" --no-restore", "测试软件"));
+            if (explicitTest) candidates.Add(("dotnet", ["test", ".\\" + name, "--no-restore"], $"dotnet test \"{name}\" --no-restore", ProjectExecutionMode.Test));
         }
         if (candidates.Count != 1) return null;
         var selected = candidates[0];
-        return new(selected.Tool, selected.Arguments, selected.Display, Convert.ToHexString(hash.GetHashAndReset()), Label: selected.Label);
+        return new(selected.Tool, selected.Arguments, selected.Display, Convert.ToHexString(hash.GetHashAndReset()), Mode: selected.Mode);
     }
 
     private async Task<T> Bounded<T>(Func<CancellationToken, T> action)
@@ -293,7 +295,7 @@ public sealed class WindowsProjectTestTerminal : IProjectTestTerminal
         var manualInfo = command.ManualCommand is null ? null : BuildStartInfo(command, "");
         if (!Directory.Exists(command.Directory)) throw new DirectoryNotFoundException("启动工作目录已移动或删除。");
         var tool = command.ManualCommand is null
-            ? ResolveTool(command.Tool, command.Directory) ?? throw new FolderOperationException(ProtocolErrors.PathNotFound, $"未找到 {command.Tool}，请安装该测试工具并重新打开 Luma。")
+            ? ResolveTool(command.Tool, command.Directory) ?? throw new FolderOperationException(ProtocolErrors.PathNotFound, $"未找到 {command.Tool}，请安装该项目工具并重新打开 Luma。")
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
         cancellation.ThrowIfCancellationRequested();
         try
@@ -320,11 +322,17 @@ public sealed class WindowsProjectTestTerminal : IProjectTestTerminal
         // The command body contains only host-selected executables and literal arguments, never manifest script bodies.
         static string Literal(string value) => "'" + value.Replace("'", "''") + "'";
         var args = string.Join(",", command.Arguments.Select(Literal));
+        // Offline testing is a separate host policy from an explicitly clicked development
+        // launch. Development inherits the user's environment, just like a saved manual
+        // command: never force network on, clear user restrictions, or inject install/fetch.
+        var environment = command.Mode == ProjectExecutionMode.Development
+            ? "Write-Host '项目开发启动：沿用当前环境；构建脚本可能按项目配置下载依赖。'; "
+            : "$env:COREPACK_ENABLE_NETWORK='0'; $env:COREPACK_ENABLE_AUTO_PIN='0'; $env:CARGO_NET_OFFLINE='true'; $env:GOPROXY='off'; $env:GONOPROXY='none'; $env:GOSUMDB='off'; $env:GOVCS='*:off'; $env:GOTOOLCHAIN='local'; ";
         var script = "$ErrorActionPreference='Stop'; " +
-            "$env:COREPACK_ENABLE_NETWORK='0'; $env:COREPACK_ENABLE_AUTO_PIN='0'; $env:CARGO_NET_OFFLINE='true'; $env:GOPROXY='off'; $env:GONOPROXY='none'; $env:GOSUMDB='off'; $env:GOVCS='*:off'; $env:GOTOOLCHAIN='local'; " +
+            environment +
             "Set-Location -LiteralPath " + Literal(command.Directory) + "; " +
             "$testArgs=@(" + args + "); & " + Literal(toolPath) + " @testArgs; " +
-            "Write-Host ('测试进程退出码: ' + $LASTEXITCODE)";
+            "Write-Host ('项目进程退出码: ' + $LASTEXITCODE)";
         var info = new ProcessStartInfo
         {
             FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"),

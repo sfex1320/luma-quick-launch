@@ -156,7 +156,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
   };
   const activateEntry = (project: Project, child: HTMLElement) => {
     if (child instanceof HTMLButtonElement && child.disabled) return;
-    if (child.dataset.entryAction === 'enter') child.click();
+    if (['enter', 'create-directory', 'copy-directory', 'move-directory'].includes(child.dataset.entryAction ?? '')) child.click();
     else if (child.dataset.recentItemId && child.dataset.itemId) void openRecent(project.id, child.dataset.recentItemId, child.dataset.itemId);
     else if (child.dataset.testTaskId && child.dataset.folderItemId) void runProjectTest(project.id, child.dataset.folderItemId, child.dataset.testTaskId);
     else if (child.dataset.folderItemId && child.dataset.itemId) void openDirectory(project.id, child.dataset.folderItemId, child.dataset.itemId);

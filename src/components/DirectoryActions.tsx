@@ -115,8 +115,23 @@ export function useDirectoryActions({ projectId, itemId, onOpen, onMutated, canc
   };
 }
 
-export function DirectoryActions({ listing, controller, showNotice }: { listing: FolderListing; controller: ReturnType<typeof useDirectoryActions>; showNotice: boolean }) {
+type Controller = ReturnType<typeof useDirectoryActions>;
+type ActionGesture = { onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void };
+export function DirectoryActionButtons({ projectId, itemId, listing, controller, highlight, gesture }: { projectId: string; itemId: string; listing: FolderListing; controller: Controller; highlight: string | null; gesture: ActionGesture }) {
   const [over, setOver] = useState(false);
+  const actionId = (name: string) => `${name}:${listing.folderId}`;
+  const props = (name: string) => ({ 'data-item-id': actionId(name), 'data-project-id': projectId, 'data-folder-item-id': itemId, 'data-entry-action': name, ...gesture, onLostPointerCapture: gesture.onPointerCancel });
+  return <>
+    <button type="button" {...props('create-directory')} className={`text-button directory-open-current ${highlight === actionId('create-directory') ? 'selected' : ''}`} disabled={controller.running} title="在当前实际目录新建文件夹" onClick={event => { if (event.detail === 0) controller.create(listing); }}><FolderPlus size={13}/>新建文件夹</button>
+    <button type="button" {...props('copy-directory')} className={`text-button directory-open-current ${highlight === actionId('copy-directory') ? 'selected' : ''}`} disabled={controller.running} onClick={event => { if (event.detail === 0) void controller.copy(listing.folderId); }}><Copy size={13}/>复制地址</button>
+    <button type="button" {...props('move-directory')} className={`directory-move-target ${over ? 'drag-over' : ''} ${highlight === actionId('move-directory') ? 'selected' : ''}`} aria-label={`移动到当前实际目录 ${listing.name}`} title={controller.prepared ? `移动「${controller.prepared.name}」到当前实际目录（需确认）` : '将真实目录项拖到这里，确认后移动'} aria-disabled={controller.running}
+      onDragOver={event => { if (!event.dataTransfer.types.includes(REAL_ENTRY_MIME)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = controller.running ? 'none' : 'move'; setOver(!controller.running); }}
+      onDragLeave={() => setOver(false)} onDrop={event => { setOver(false); controller.drop(event, listing); }}
+      onClick={event => { if (event.detail === 0 && controller.prepared && !controller.running) controller.confirmMove(listing, controller.prepared); }}><MoveRight size={14}/></button>
+  </>;
+}
+
+export function DirectoryActions({ listing, controller, showNotice }: { listing: FolderListing; controller: Controller; showNotice: boolean }) {
   const form = controller.form?.owner === listing.folderId ? controller.form : null;
   const [name, setName] = useState('');
   const input = useRef<HTMLInputElement>(null), confirmation = useRef<HTMLButtonElement>(null);
@@ -128,16 +143,6 @@ export function DirectoryActions({ listing, controller, showNotice }: { listing:
   return <div className="directory-actual-actions" onKeyDown={event => {
     if (event.key === 'Escape' && form) { event.preventDefault(); event.stopPropagation(); controller.closeForm(); }
   }}>
-    <div className="directory-actual-toolbar"><span>实际目录</span>
-      <button type="button" className="text-button" disabled={controller.running} onClick={() => controller.create(listing)}><FolderPlus size={13}/>新建文件夹</button>
-      <button type="button" className="text-button" disabled={controller.running} onClick={() => void controller.copy(listing.folderId)}><Copy size={13}/>复制地址</button>
-    </div>
-    <button type="button" className={`directory-move-target ${over ? 'drag-over' : ''}`} aria-label={`移动到当前实际目录 ${listing.name}`} aria-disabled={controller.running}
-      onDragOver={event => { if (!event.dataTransfer.types.includes(REAL_ENTRY_MIME)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = controller.running ? 'none' : 'move'; setOver(!controller.running); }}
-      onDragLeave={() => setOver(false)} onDrop={event => { setOver(false); controller.drop(event, listing); }}
-      onClick={() => { if (controller.prepared && !controller.running) controller.confirmMove(listing, controller.prepared); }}>
-      <MoveRight size={14}/><span>移动到当前实际目录<small>{controller.prepared ? `待移动：${controller.prepared.name}` : '拖到这里后确认 · 不覆盖同名文件'}</small></span>
-    </button>
     {controller.prepared && <button type="button" className="text-button directory-clear-move" disabled={controller.running} onClick={controller.clearPrepared}>取消待移动项</button>}
     {form && <form className="directory-actual-form" aria-label={form.type === 'move' ? '确认实际移动' : form.type === 'create' ? '新建实际文件夹' : '重命名实际目录项'} onSubmit={event => { event.preventDefault(); if (form.type === 'move' || (name && !badName)) void controller.submit(name); }}>
       <strong>{form.type === 'move' ? '确认移动实际文件或文件夹' : form.type === 'create' ? '新建实际文件夹' : '重命名实际文件或文件夹'}</strong>

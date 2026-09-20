@@ -26,7 +26,7 @@ public sealed class WindowsRecentProjectSourceTests
                 Link(Path.Combine(recent, "带参数.lnk"), software, document);
                 var source = new WindowsRecentProjectSource(recent);
                 Assert.Equal(software, source.ResolveExecutable(appLink, CancellationToken.None), StringComparer.OrdinalIgnoreCase);
-                Assert.Equal(document, Assert.Single(source.ReadRecent(CancellationToken.None)).Path, StringComparer.OrdinalIgnoreCase);
+                Assert.Equal(document, Assert.Single(source.ReadRecent(software, CancellationToken.None)).Path, StringComparer.OrdinalIgnoreCase);
                 Link(appLink, software, "--unsafe-argument");
                 Assert.Null(source.ResolveExecutable(appLink, CancellationToken.None));
                 Assert.False(source.IsRegularFile(recent));

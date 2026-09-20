@@ -10,7 +10,7 @@
     <AssemblyName>Luma</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\luma.ico</ApplicationIcon>
-    <Version>0.3.1</Version>
+    <Version>0.3.2</Version>
     <Deterministic>true</Deterministic>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>

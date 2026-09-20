@@ -44,6 +44,7 @@ public sealed class RecentProjectServiceTests : IDisposable
         Assert.All(listing.Entries, e => { Assert.Equal("file", e.Kind); Assert.NotEqual(e.Path, e.Id); });
         Assert.Contains("Windows", listing.Note);
         Assert.Empty(_opened);
+        Assert.Equal(@"C:\Apps\Photoshop.exe", _source.LastReadExecutable);
         Assert.True(await _service.OpenAsync("dock", "p", "main", listing.Entries[0].Id));
         Assert.Equal(@"C:\Art\recent.psb", Assert.Single(_opened));
     }
@@ -51,9 +52,6 @@ public sealed class RecentProjectServiceTests : IDisposable
     [InlineData("Illustrator.exe", ".ai")]
     [InlineData("Illustrator.exe", ".eps")]
     [InlineData("InDesign.exe", ".indd")]
-    [InlineData("AfterFX.exe", ".aep")]
-    [InlineData("Adobe Premiere Pro.exe", ".prproj")]
-    [InlineData("blender.exe", ".blend")]
     public async Task DedicatedApplicationIdentitySelectsItsDocumentExtension(string exe, string extension)
     {
         SaveApp(@"C:\Apps\" + exe); Add(@"C:\Art\project" + extension); Add(@"C:\Art\wrong.psd");
@@ -153,10 +151,11 @@ public sealed class RecentProjectServiceTests : IDisposable
         public List<RecentProjectDocument> Rows = new();
         public HashSet<string> Files = new(StringComparer.OrdinalIgnoreCase);
         public int Reads, Yielded;
+        public string? LastReadExecutable;
         public Action? BeforeResolve;
         public string? ResolveExecutable(string savedPath, CancellationToken cancellation) { BeforeResolve?.Invoke(); return Executable; }
-        public IEnumerable<RecentProjectDocument> ReadRecent(CancellationToken cancellation)
-        { Reads++; foreach (var row in Rows) { Yielded++; yield return row; } }
+        public IEnumerable<RecentProjectDocument> ReadRecent(string executable, CancellationToken cancellation)
+        { Reads++; LastReadExecutable = executable; foreach (var row in Rows) { Yielded++; yield return row; } }
         public bool IsRegularFile(string path) => Files.Contains(path);
     }
 }

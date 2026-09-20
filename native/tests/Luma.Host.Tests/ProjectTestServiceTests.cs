@@ -84,6 +84,11 @@ public sealed class ProjectTestServiceTests : IDisposable
         var command = Assert.Single(_terminal.Commands);
         Assert.Equal(new[] { "run", script }, command.Arguments);
         Assert.Equal(_dir, command.Directory);
+        Assert.Equal(script == "test" ? ProjectExecutionMode.Test : ProjectExecutionMode.Development, command.Mode);
+        var startInfo = WindowsProjectTestTerminal.BuildStartInfo(command, @"C:\tools\npm.cmd");
+        var body = Encoding.Unicode.GetString(Convert.FromBase64String(startInfo.ArgumentList.Last()));
+        if (script == "test") Assert.Contains("$env:CARGO_NET_OFFLINE='true'", body);
+        else Assert.DoesNotContain("$env:", body);
     }
     private void TauriPackage()
     {
@@ -105,7 +110,12 @@ public sealed class ProjectTestServiceTests : IDisposable
         var command = Assert.Single(_terminal.Commands);
         Assert.Equal("pnpm", command.Tool);
         Assert.Equal(new[] { "run", "tauri", "dev" }, command.Arguments);
+        Assert.Equal(ProjectExecutionMode.Development, command.Mode);
         Assert.Equal(_dir, command.Directory);
+        var startInfo = WindowsProjectTestTerminal.BuildStartInfo(command, @"C:\tools\pnpm.cmd");
+        var body = Encoding.Unicode.GetString(Convert.FromBase64String(startInfo.ArgumentList.Last()));
+        Assert.DoesNotContain("$env:", body);
+        Assert.Contains("构建脚本可能按项目配置下载依赖", body);
         await Error("BUSY", () => Run(task.Id));
     }
     [Theory]
@@ -181,8 +191,12 @@ public sealed class ProjectTestServiceTests : IDisposable
     public async Task ExplicitProjectMarkersUseFixedNoRestoreCommands(string manifest, string body, string expected)
     {
         Write(manifest, body);
-        Assert.Equal(expected, (await Detect()).Task?.Command);
+        var task = (await Detect()).Task;
+        Assert.NotNull(task);
+        Assert.Equal(expected, task.Command);
         Assert.Empty(_terminal.Commands);
+        Assert.True(await Run(task.Id));
+        Assert.Equal(ProjectExecutionMode.Test, Assert.Single(_terminal.Commands).Mode);
     }
     [Fact]
     public async Task DotnetDoesNotGuessTestProjectOrEvaluateConditionalMsbuild()
@@ -225,6 +239,24 @@ public sealed class ProjectTestServiceTests : IDisposable
         _store.Save(state, state.Revision);
         await Error("INVALID_REQUEST", () => Run(task.Id));
         Assert.Empty(_terminal.Commands);
+    }
+    [Fact]
+    public async Task ReDetectingSameFingerprintRenewsTokenButStillRevalidatesManifest()
+    {
+        Package();
+        var first = (await Detect()).Task!;
+        _now = _now.AddMinutes(1).AddSeconds(59);
+        var refreshed = (await Detect()).Task!;
+        Assert.Equal(first.Id, refreshed.Id);
+        _now = _now.AddSeconds(2); // Past the original expiry, inside the refreshed expiry.
+        Assert.True(await Run(refreshed.Id));
+        Assert.Single(_terminal.Commands);
+
+        _terminal.Processes[0].Exited = true;
+        var current = (await Detect()).Task!;
+        Write("package.json", "{\"scripts\":{\"test\":\"changed\"}}");
+        await Error("INVALID_REQUEST", () => Run(current.Id));
+        Assert.Single(_terminal.Commands);
     }
     [Fact]
     public async Task DeletedRootOrDetachedFolderTokenCannotLaunch()
