@@ -129,7 +129,7 @@ try {
   expect(await launches()).toBe(before+1);
   const afterReleaseLog=await readFile(logPath,'utf8');
   if (afterReleaseLog.includes('foreground=False')) {
-    await expect(dock.getByRole('status')).toContainText('无法');
+    await expect(dock.getByRole('status')).toContainText('暂未允许切到前台');
   }
   const countShellWindows=shellInspection.replace('($found.Count -gt 0)', '$found.Count');
   expect(Number(execFileSync('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(countShellWindows,'utf16le').toString('base64')],
