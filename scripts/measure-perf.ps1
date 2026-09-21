@@ -3,7 +3,7 @@
 # 输出：docs/perf-report.md（真实采样数据，不使用预设数字）
 $ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot -Parent
-$exe = Join-Path $root 'APP\native\Luma\Luma.exe'
+$exe = Join-Path $root 'APP\Luma\Luma.exe'
 if (-not (Test-Path $exe)) { throw "未找到 $exe；请先运行 scripts/build-native.ps1" }
 $stateDir = Join-Path $env:LOCALAPPDATA 'Luma'
 $statePath = Join-Path $stateDir 'state.json'

@@ -36,7 +36,7 @@ $webViewSignature = Get-AuthenticodeSignature -LiteralPath $webViewBootstrapper
 if ($webViewSignature.Status -ne 'Valid' -or $webViewSignature.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
     throw 'Release payload contains an invalid or non-Microsoft WebView2 bootstrapper.'
 }
-if (-not $OutputDirectory) { $OutputDirectory = Join-Path $root 'releases' }
+if (-not $OutputDirectory) { $OutputDirectory = Join-Path $root 'APP' }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $installer = Join-Path $output "luma-quick-launch-$Version-setup-x64.exe"

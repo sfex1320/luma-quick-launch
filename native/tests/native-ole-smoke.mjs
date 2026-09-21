@@ -10,7 +10,7 @@ import { randomUUID, createHash } from 'node:crypto';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const args = process.argv.slice(2);
-const exe = args.includes('--exe') ? path.resolve(args[args.indexOf('--exe') + 1]) : path.join(root, 'APP/native/Luma/Luma.exe');
+const exe = args.includes('--exe') ? path.resolve(args[args.indexOf('--exe') + 1]) : path.join(root, 'APP/Luma/Luma.exe');
 const sdk = process.env.DOTNET_EXE || path.join(process.env.LOCALAPPDATA, 'Microsoft/dotnet/dotnet.exe');
 const probeProject = path.join(root, 'native/tests/OleDragProbe/OleDragProbe.csproj');
 execFileSync(sdk, ['build', probeProject, '-c', 'Release', '--nologo'], { windowsHide: true, stdio: 'inherit' });

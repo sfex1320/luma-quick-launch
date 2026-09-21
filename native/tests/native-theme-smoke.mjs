@@ -8,7 +8,7 @@ import net from 'node:net';
 import { randomUUID, createHash } from 'node:crypto';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const exe = path.join(root, 'APP/native/Luma/Luma.exe');
+const exe = path.join(root, 'APP/Luma/Luma.exe');
 const userState = path.join(process.env.LOCALAPPDATA, 'Luma', 'state.json');
 const userHash = async () => {
   try { return createHash('sha256').update(await readFile(userState)).digest('hex'); }
@@ -28,7 +28,7 @@ const env = { ...process.env, LUMA_DATA_DIRECTORY: data,
   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` };
 const child = spawn(exe, ['--settings', '--search'], { env, windowsHide: true, stdio: 'ignore' });
 const evidence = { date: new Date().toISOString(), pid: child.pid, data,
-  hostSha256: createHash('sha256').update(await readFile(path.join(root, 'APP/native/Luma/Luma.dll'))).digest('hex'), checks: [], snapshots: [] };
+  hostSha256: createHash('sha256').update(await readFile(path.join(root, 'APP/Luma/Luma.dll'))).digest('hex'), checks: [], snapshots: [] };
 let browser;
 const inspect = () => JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass',
   '-File', path.join(root, 'native/tests/Inspect-NativeWindow.ps1'), '-TargetProcessId', String(child.pid)],

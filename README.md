@@ -16,12 +16,14 @@ GitHub 仓库：<https://github.com/sfex1320/luma-quick-launch>。Windows x64 �
 
 ## 运行原生内核
 
-双击根目录 **`启动Luma.cmd`** 即可打开管理窗口；已运行时复用已有实例。完整程序位于 `APP/native/Luma/`，请保留整个目录。
+双击根目录 **`启动Luma.cmd`** 即可打开管理窗口；已运行时复用已有实例。完整程序位于 `APP/Luma/`，请保留整个目录。
+
+本地交付文件统一放在根目录 `APP/`：`Luma/Luma.exe` 为直接运行的便携程序，`luma-quick-launch-0.3.2-win-x64.zip` 为便携压缩包，`luma-quick-launch-0.3.2-setup-x64.exe` 为安装包。桌面 Luma 图标指向 `APP/Luma/Luma.exe`。`releases/` 只用于内部构建工具和临时验证，不是用户交付入口；完成交付后清理旧包与重复程序副本。
 
 ```powershell
 # 一键构建交付包（前端 dist + 自包含内核，终端用户无需 Node.js 与 .NET 运行时）
 powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1
-# 产物：APP/native/Luma/Luma.exe
+# 产物：APP/Luma/Luma.exe
 ```
 
 开发调试（需 .NET 10 SDK，本机可先运行 `scripts/install-dotnet10.ps1`）：

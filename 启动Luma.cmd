@@ -1,2 +1,2 @@
 @echo off
-start "" "%~dp0APP\native\Luma\Luma.exe" --settings
+start "" "%~dp0APP\Luma\Luma.exe" --settings

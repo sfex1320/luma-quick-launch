@@ -1,11 +1,11 @@
 ﻿# Luma 原生内核构建脚本
 # 用法：powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1 [-Configuration Release]
-# 产物：APP/native/Luma/（自包含，无需 .NET 运行时与 Node.js），并打包 frontend dist。
+# 产物：APP/Luma/（自包含，无需 .NET 运行时与 Node.js），并打包 frontend dist。
 param([string]$OutputDirectory, [string]$Configuration = 'Release')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $native = Join-Path $root 'native'
-$outDir = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $root 'APP\native\Luma' }
+$outDir = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $root 'APP\Luma' }
 if ($env:LUMA_CONFIGURATION) { $configuration = $env:LUMA_CONFIGURATION }
 
 # 定位 .NET 10 SDK：优先用户目录安装（dotnet-install），其次 PATH。

@@ -7,7 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { randomUUID, createHash } from 'node:crypto';
 const root = path.resolve(import.meta.dirname, '../..');
-const exe = process.env.LUMA_TEST_EXE ? path.resolve(process.env.LUMA_TEST_EXE) : path.join(root, 'APP/native/Luma/Luma.exe');
+const exe = process.env.LUMA_TEST_EXE ? path.resolve(process.env.LUMA_TEST_EXE) : path.join(root, 'APP/Luma/Luma.exe');
 const appDirectory = path.dirname(exe);
 const data = path.join(tmpdir(), `luma-native-smoke-${randomUUID()}`);
 await mkdir(path.join(data, '项目 主目录', '素材'), { recursive: true });

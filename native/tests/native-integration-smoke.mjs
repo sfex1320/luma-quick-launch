@@ -8,7 +8,7 @@ import net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { assertExecutableIdle } from './assert-executable-idle.mjs';
 const root = path.resolve(import.meta.dirname, '../..');
-const exe = path.resolve(process.env.LUMA_TEST_EXE ?? path.join(root, 'APP/native/Luma/Luma.exe'));
+const exe = path.resolve(process.env.LUMA_TEST_EXE ?? path.join(root, 'APP/Luma/Luma.exe'));
 assertExecutableIdle(exe);
 const data = path.join(tmpdir(), `luma-integration-smoke-${randomUUID()}`);
 await mkdir(data, { recursive: true });

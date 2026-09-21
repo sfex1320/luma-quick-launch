@@ -22,8 +22,8 @@ const userConfig=path.join(process.env.LOCALAPPDATA,'Luma/state.json');
 const optionalRead=async p=>{try{return await readFile(p)}catch(e){if(e.code==='ENOENT')return null;throw e}};
 const before=await optionalRead(userConfig), hash=bytes=>bytes?createHash('sha256').update(bytes).digest('hex'):null;
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));
-const child=spawn(path.join(root,'APP/native/Luma/Luma.exe'),['--settings'],{env:{...process.env,DOTNET_ROOT:path.dirname(dotnet),LUMA_DATA_DIRECTORY:data,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`},windowsHide:true,stdio:'ignore'});
-const evidence={date:new Date().toISOString(),data,pid:child.pid,hostSha256:hash(await readFile(path.join(root,'APP/native/Luma/Luma.dll'))),checks:[]};
+const child=spawn(path.join(root,'APP/Luma/Luma.exe'),['--settings'],{env:{...process.env,DOTNET_ROOT:path.dirname(dotnet),LUMA_DATA_DIRECTORY:data,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`},windowsHide:true,stdio:'ignore'});
+const evidence={date:new Date().toISOString(),data,pid:child.pid,hostSha256:hash(await readFile(path.join(root,'APP/Luma/Luma.dll'))),checks:[]};
 let browser,page;
 const check=message=>{evidence.checks.push(message);console.log(`PASS ${message}`)};
 try {

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import { randomUUID, createHash } from 'node:crypto';
-const root=path.resolve(import.meta.dirname,'../..'), exe=path.join(root,'APP/native/Luma/Luma.exe');
+const root=path.resolve(import.meta.dirname,'../..'), exe=path.join(root,'APP/Luma/Luma.exe');
 const data=path.join(tmpdir(),`luma-folder-smoke-${randomUUID()}`), fixture=path.join(data,'目录验证');
 await mkdir(path.join(fixture,'子目录一','下一层'),{recursive:true}); await mkdir(path.join(fixture,'子目录二'));
 await writeFile(path.join(fixture,'说明.txt'),'fixture');
@@ -24,7 +24,7 @@ await writeFile(path.join(data,'state.json'),JSON.stringify(state));
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));
 const env={...process.env,LUMA_DATA_DIRECTORY:data,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`};
 const child=spawn(exe,['--show-dock'],{env,windowsHide:true,stdio:'ignore'});
-const evidence={date:new Date().toISOString(),data,pid:child.pid,hostSha256:hash(await readFile(path.join(root,'APP/native/Luma/Luma.dll'))),frontendSha256:hash(await readFile(path.join(root,'APP/native/Luma/dist/index.html'))),checks:[]};
+const evidence={date:new Date().toISOString(),data,pid:child.pid,hostSha256:hash(await readFile(path.join(root,'APP/Luma/Luma.dll'))),frontendSha256:hash(await readFile(path.join(root,'APP/Luma/dist/index.html'))),checks:[]};
 let browser;
 const check=s=>{evidence.checks.push(s);console.log(`PASS ${s}`);};
 try{

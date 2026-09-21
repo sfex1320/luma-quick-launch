@@ -7,11 +7,12 @@ $package = Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
 if ($package.version -ne $Version -or $project.Project.PropertyGroup.Version -ne $Version) {
     throw 'Release, frontend and native versions must match.'
 }
-$releaseDir = Join-Path $root 'releases'
+$releaseDir = Join-Path $root 'APP'
+New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 $archiveName = "luma-quick-launch-$Version-win-x64"
 $zip = Join-Path $releaseDir "$archiveName.zip"
 if (Test-Path $zip) { throw "Already exists; refusing to replace: $zip" }
-$buildDir = Join-Path $releaseDir ('build-' + [guid]::NewGuid().ToString('N'))
+$buildDir = Join-Path (Join-Path $root 'releases') ('build-' + [guid]::NewGuid().ToString('N'))
 $stage = Join-Path $buildDir $archiveName
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Push-Location $root
@@ -72,7 +73,7 @@ try {
     if (@(Get-ChildItem -LiteralPath $extracted -Recurse -File).Count -ne $files.Count) { throw 'Archive file count mismatch.' }
 
     # Run the extracted executable, with isolated state, instead of a development host.
-    $installedExe = Join-Path $root 'APP/native/Luma/Luma.exe'
+    $installedExe = Join-Path $root 'APP/Luma/Luma.exe'
     $running = @(Get-Process -Name Luma -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $installedExe })
     $previousTestExe = $env:LUMA_TEST_EXE
     $testLog = Join-Path $buildDir 'native-smoke.log'

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { assertExecutableIdle } from './assert-executable-idle.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const exe = process.env.LUMA_TEST_EXE || path.join(root, 'APP/native/Luma/Luma.exe');
+const exe = process.env.LUMA_TEST_EXE || path.join(root, 'APP/Luma/Luma.exe');
 assertExecutableIdle(exe);
 const data = await mkdtemp(path.join(tmpdir(), 'luma-lifecycle-'));
 const env = { ...process.env, LUMA_DATA_DIRECTORY: data };

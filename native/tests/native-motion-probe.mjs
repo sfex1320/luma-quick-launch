@@ -7,7 +7,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { randomUUID, createHash } from 'node:crypto';
 const root = path.resolve(import.meta.dirname, '../..');
-const executable = process.argv[2] || path.join(root, 'APP/native/Luma/Luma.exe');
+const executable = process.argv[2] || path.join(root, 'APP/Luma/Luma.exe');
 const output = process.argv[3] || path.join(root, 'test-results/fifth-motion-native-before.json');
 const data = path.join(tmpdir(), `luma-motion-probe-${randomUUID()}`);
 await mkdir(data, { recursive: true });
