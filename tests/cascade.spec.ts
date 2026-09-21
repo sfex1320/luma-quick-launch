@@ -68,7 +68,7 @@ test('hover divides a folder into large Open and Enter targets; quick click stay
   await setup(page);
   await page.locator('.dock-project').click();
   expect(await calls(page, 'shell.openItem')).toHaveLength(1);
-  await page.getByRole('button', { name: '展开 仓库 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 仓库 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await tile(page, 'src').hover();
   const enter = page.getByRole('button', { name: '浏览 源码 子目录', exact: true });
   await expect(enter).toBeVisible();
@@ -84,7 +84,7 @@ test('hover divides a folder into large Open and Enter targets; quick click stay
 
 test('file content is confined to static icon thumbnails with unsupported files falling back', async ({ page }) => {
   await setup(page);
-  await page.getByRole('button', { name: '展开 仓库 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 仓库 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(tile(page, 'image').locator('img.file-thumbnail')).toBeVisible();
   await expect(tile(page, 'unsupported').locator('img')).toHaveCount(0);
   expect(await calls(page, 'folder.open')).toHaveLength(0);
@@ -111,7 +111,7 @@ test('manual command and working directory are saved literally without launching
 
 test('a held group member retains capture while its directory expands beside the group', async ({ page }) => {
   await setup(page, true, true);
-  await page.getByRole('button', { name: '展开 仓库 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 仓库 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await moveTo(page, page.locator('.group-column .stack-item[data-item-id="main"]')); await page.mouse.down();
   await page.waitForTimeout(330);
   const source = await page.locator('.group-column .stack-item[data-item-id="main"]').boundingBox();
@@ -140,7 +140,7 @@ test('releasing outside a cascade cancels; a layout shift alone never launches a
 
 test('narrow cascades scroll to children, retain ancestors and keep native hit regions on screen', async ({ page }) => {
   await page.setViewportSize({ width: 340, height: 640 }); await setup(page);
-  await page.getByRole('button', { name: '展开 仓库 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 仓库 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await tile(page, 'src').press('ArrowRight'); await expect(tile(page, 'components')).toBeVisible();
   await tile(page, 'components').press('ArrowRight'); await expect(tile(page, 'file')).toBeVisible();
   await expect(page.locator('.folder-column')).toHaveCount(3);

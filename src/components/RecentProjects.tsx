@@ -3,10 +3,10 @@ import { FolderOpen, RefreshCw } from 'lucide-react';
 import type { LaunchItem, Methods } from '../contracts';
 import { request } from '../bridge';
 import { ItemIcon } from './ItemIcon';
-import { useRightPan } from './useRightPan';
+import { useBlankPan } from './useBlankPan';
 export function RecentProjects({ projectId, item, limit, leadingColumns = 0, onOpen, ...gesture }: { projectId: string; item: LaunchItem; limit: number; leadingColumns?: number; onOpen: (entryId: string) => void; onPointerDown: (e: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (e: PointerEvent) => void; onPointerUp: (e: PointerEvent) => void; onPointerCancel: () => void }) {
   const [recent, setRecent] = useState<Methods['shell.getRecent']['result'] | null>(null), [error, setError] = useState(''), [reload, setReload] = useState(0);
-  const pan = useRightPan('y');
+  const pan = useBlankPan();
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const panel = root.current?.closest<HTMLElement>('.stack-panel'); if (!panel) return;

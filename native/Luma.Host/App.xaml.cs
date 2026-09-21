@@ -30,6 +30,10 @@ public partial class App : Application, IWindowHost
     private readonly System.Windows.Threading.DispatcherTimer _dockCloseTimer = new()
     { Interval = TimeSpan.FromMilliseconds(DockVisibilityState.CloseTimeoutMilliseconds) };
     private System.Windows.Interop.HwndSource? _hotkeySource;
+    private ShortcutService? _shortcuts;
+    private readonly PendingShortcutActivation _shortcutActivation = new();
+    private readonly System.Windows.Threading.DispatcherTimer _recordingTimer = new();
+    private volatile bool _exiting;
     private SearchWindow? _search;
     private readonly ManualResetEvent _stopListener = new(false);
     private bool _pendingDockShow;
@@ -117,6 +121,7 @@ public partial class App : Application, IWindowHost
             // 外观变化（宽度/材质/自动隐藏）影响热区、backdrop 与收起行为，在 UI 线程应用；面板布局由前端 sync 驱动。
             Dispatcher.BeginInvoke(() =>
             {
+                _shortcuts?.Reconcile(); // Resolve latest saved state inside the dispatcher; never capture an obsolete save.
                 _edge?.RelocateHotspot();
                 _dock?.SetMaterial(state.Preferences.Material);
                 if (_edge is not null) _edge.AutoCollapseEnabled = state.Preferences.AutoHide;
@@ -297,6 +302,7 @@ public partial class App : Application, IWindowHost
 
     private void CompleteDockHide()
     {
+        _shortcutActivation.Clear();
         _dockCloseTimer.Stop();
         _dockVisibility.Hide();
         _edge?.NotifyDockHidden();
@@ -381,6 +387,8 @@ public partial class App : Application, IWindowHost
         {
             _dock.ShowDock();
             _edge?.NotifyDockShown();
+            if (_shortcutActivation.Take(_store!.Current, true, Environment.TickCount64) is { } activation)
+                _dock.PostShortcutActivation(activation.Binding.Id, activation.Serial);
         }
         else if (_dockVisibility.ShouldHide(expanded, visibilityId)) CompleteDockHide();
     }
@@ -397,6 +405,7 @@ public partial class App : Application, IWindowHost
             return;
         }
         _settings = new SettingsWindow(_router!, _environment, _store!, section, () => _edge?.TriggerFromTray());
+        _settings.Deactivated += (_, _) => _shortcuts?.Detach("settings");
         _settings.Closed += (_, _) => _settings = null;
         _settings.Show();
         _settings.Activate();
@@ -404,6 +413,13 @@ public partial class App : Application, IWindowHost
     }
 
     void IWindowHost.ShowDock() => _edge?.TriggerFromTray();
+
+    bool IWindowHost.IsShortcutClientFocused(string clientId) => clientId switch
+    {
+        "dock" => _dock?.HasShortcutFocus == true && _dockVisibility.Phase == DockVisibilityPhase.Visible,
+        "settings" => _settings is { WindowState: not WindowState.Minimized } && Win32.GetForegroundWindow() == _settings.WindowHandle,
+        _ => false,
+    };
 
     #endregion
 
@@ -429,11 +445,51 @@ public partial class App : Application, IWindowHost
         { Width = 0, Height = 0, WindowStyle = 0, ParentWindow = new IntPtr(-3) });
         _hotkeySource.AddHook((IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled) =>
         {
-            if (message == 0x0312 && wParam.ToInt32() == 1) { OpenSearch(); handled = true; }
+            if (message == 0x0312 && _shortcuts is not null) { _ = _shortcuts.HandleHotkeyAsync(wParam.ToInt32()); handled = true; }
             return IntPtr.Zero;
         });
-        if (!Win32.RegisterHotKey(_hotkeySource.Handle, 1, 0x0001 | 0x0002 | 0x4000, 0x20))
-            Log.Warn("Ctrl+Alt+Space 被其他应用占用；可从托盘打开搜索");
+        _shortcuts = new ShortcutService(() => _store!.Current, new WindowsHotkeyPlatform(_hotkeySource.Handle), DispatchShortcut,
+            (binding, request) => Task.Run(() =>
+            {
+                bool Authorized() => !_exiting && (_store!.Current.Preferences.Shortcuts ?? []).Contains(binding);
+                return Authorized() && _launcher!.OpenItem(request, binding.ProjectId!, binding.ItemId!, Authorized).Accepted;
+            }));
+        _router!.Shortcuts = _shortcuts;
+        _recordingTimer.Tick += (_, _) => { _recordingTimer.Stop(); _shortcuts.ExpireRecordings(); };
+        _shortcuts.RecordingChanged += () =>
+        {
+            _recordingTimer.Stop();
+            if (_shortcuts.NextRecordingExpiry is { } deadline)
+            {
+                _recordingTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, (deadline - DateTimeOffset.UtcNow).TotalMilliseconds));
+                _recordingTimer.Start();
+            }
+        };
+        _dock!.Deactivated += (_, _) => _shortcuts.Detach("dock");
+        _shortcuts.Reconcile();
+    }
+
+    private void DispatchShortcut(ShortcutBinding binding, long serial)
+    {
+        switch (binding.Action)
+        {
+            case "search": OpenSearch(); break;
+            case "settings": ((IWindowHost)this).OpenSettings("projects"); break;
+            case "dock": _edge?.TriggerFromTray(); break;
+            case "project":
+            case "edit":
+                _shortcutActivation.Request(binding, serial, Environment.TickCount64);
+                if (_dockVisibility.Phase == DockVisibilityPhase.Visible)
+                {
+                    // Even an already-visible document must acknowledge a fresh visibility/layout turn.
+                    _dock!.ResumeForActivation();
+                    _dockVisibility.RequestShow();
+                    _router!.BroadcastVisibility(true, _dockVisibility.VisibilityId);
+                }
+                else _edge?.TriggerFromTray();
+                if (_dockVisibility.Phase == DockVisibilityPhase.Hidden && !_pendingDockShow) _shortcutActivation.Clear();
+                break;
+        }
     }
 
     private void CreateTray()
@@ -471,8 +527,11 @@ public partial class App : Application, IWindowHost
     protected override void OnExit(ExitEventArgs e)
     {
         _dockCloseTimer.Stop();
+        _exiting = true;
+        _recordingTimer.Stop();
+        _shortcuts?.Dispose();
         // 已回应成功的配置在保存时即已落盘；此处只做释放。
-        if (_hotkeySource is not null) { Win32.UnregisterHotKey(_hotkeySource.Handle, 1); _hotkeySource.Dispose(); }
+        _hotkeySource?.Dispose();
         _edge?.Dispose();
         _monitors?.Dispose();
         _tray?.Dispose();

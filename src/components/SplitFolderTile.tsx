@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type PointerEvent } from '
 import { FolderOpen, ArrowRight } from 'lucide-react';
 
 type Gesture = { onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void };
-export function SplitFolderTile({ children, name, projectId, entryId, folderItemId, onOpen, onEnter, gesture, className = '', enabled = true, software = false }: { children: ReactNode; name: string; projectId: string; entryId: string; folderItemId?: string; onOpen: () => void; onEnter: () => void; gesture: Gesture; className?: string; enabled?: boolean; software?: boolean }) {
+export function SplitFolderTile({ children, name, projectId, entryId, folderItemId, onOpen, onEnter, gesture, className = '', enabled = true, software = false, enterOnly = false }: { children: ReactNode; name: string; projectId: string; entryId: string; folderItemId?: string; onOpen: () => void; onEnter: () => void; gesture: Gesture; className?: string; enabled?: boolean; software?: boolean; enterOnly?: boolean }) {
   const [ready, setReady] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -39,9 +39,9 @@ export function SplitFolderTile({ children, name, projectId, entryId, folderItem
     onPointerCancelCapture={() => { clearTimeout(hold.current); held.current = false; origin.current = null; }}
     onKeyDown={event => { if (event.key === 'ArrowRight') { event.preventDefault(); gesture.onPointerCancel(); onEnter(); } }}>
     {children}
-    {ready && <div className="split-folder-actions">
-      <button {...identity} className="split-open" aria-label={`打开 ${name}`} title="单击打开，长按进入" {...splitGesture} onClick={event => { if (event.detail === 0) onOpen(); }}><FolderOpen size={17}/><span>{software ? '打开软件' : '打开'}</span></button>
-      <button {...identity} data-entry-action="enter" className="split-enter" aria-label={software ? `查看 ${name} 最近项目` : `浏览 ${name} 子目录`} title="单击或长按进入" {...splitGesture} onClick={event => { if (event.detail === 0) onEnter(); }}><ArrowRight size={17}/><span>{software ? '最近' : '进入'}</span></button>
+    {ready && <div className={`split-folder-actions${enterOnly ? ' split-enter-only' : ''}`}>
+      {!enterOnly && <button {...identity} className="split-open" aria-label={`打开 ${name}`} title="单击打开，长按进入" {...splitGesture} onClick={event => { if (event.detail === 0) onOpen(); }}><FolderOpen size={17}/><span>{software ? '打开软件' : '打开'}</span></button>}
+      <button {...identity} data-entry-action="enter" className="split-enter" aria-label={enterOnly ? `进入 ${name} 子菜单` : software ? `查看 ${name} 最近项目` : `浏览 ${name} 子目录`} title="单击或长按进入" {...splitGesture} onClick={event => { if (event.detail === 0) onEnter(); }}><ArrowRight size={17}/><span>{software ? '最近' : '进入'}</span></button>
     </div>}
   </div>;
 }

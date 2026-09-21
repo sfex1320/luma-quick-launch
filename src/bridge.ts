@@ -57,6 +57,9 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
   }
   let result: unknown;
   switch (method) {
+    case 'shortcut.getStatus': result = { bindings: (demoState.preferences.shortcuts ?? []).map(binding => ({ id: binding.id, registered: binding.scope === 'panel', message: binding.scope === 'panel' ? '面板有焦点时生效' : '全局快捷键需在桌面版生效' })) }; break;
+    case 'shortcut.setRecording': result = { accepted: true }; break;
+    case 'shortcut.execute': throw new Error('原生快捷键执行仅适用于桌面程序。');
     case 'website.inspect': { const url = new URL((params as Methods['website.inspect']['params']).url); result = { url: url.href, title: url.hostname, dataUrl: null }; break; }
     case 'shell.getRecent': result = { entries: [], note: '桌面程序读取 Windows 最近项目；浏览器预览不读取本机历史。' }; break;
     case 'shell.openRecent': case 'folder.getPath': case 'folder.createFolder': case 'folder.rename': case 'folder.move': throw new Error('此操作仅适用于 Luma 桌面程序中的真实目录。');

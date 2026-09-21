@@ -41,7 +41,7 @@ try {
  for(const type of ['dragEnter','dragOver','drop']) await cdp.send('Input.dispatchDragEvent',{type,x:box.x+box.width-5,y:box.y+box.height/2,data:{items:[],files:[repo],dragOperationsMask:1}});
  const saved=()=>readFile(path.join(data,'state.json'),'utf8').then(JSON.parse);
  await expect.poll(async()=>(await saved()).projects.length).toBe(1);check('actual native file-object drop saves the repository without execution');
- const openStack=async()=>{await activate('--show-dock');await dock.getByRole('button',{name:'展开 代码仓库 堆叠',exact:true}).click();};
+ const openStack=async()=>{await activate('--show-dock');await dock.locator('.dock-project').filter({hasText:'代码仓库'}).press('ArrowDown');};
  await openStack();
  const image=dock.locator('.directory-row').filter({has:dock.getByText('图标预览.png',{exact:true})}).locator('img.file-thumbnail');
  await expect(image).toBeVisible();evidence.thumbnailSize=await image.evaluate(el=>({width:el.naturalWidth,height:el.naturalHeight}));

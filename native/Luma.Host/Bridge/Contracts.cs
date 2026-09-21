@@ -49,6 +49,7 @@ public sealed record LaunchConfiguration
 
 public sealed class Preferences
 {
+    [JsonPropertyName("shortcuts"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<ShortcutBinding>? Shortcuts { get; set; }
     [JsonPropertyName("recentLimit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RecentLimit { get; set; }
     [JsonRequired, JsonPropertyName("width")] public double Width { get; set; } = 640;
     [JsonRequired, JsonPropertyName("height")] public double Height { get; set; } = 88;
@@ -147,6 +148,7 @@ public static class StateValidator
             if (!Materials.Contains(prefs.Material)) errors.Add("材质枚举非法。");
             if (!Themes.Contains(prefs.Theme)) errors.Add("主题枚举非法。");
             if (prefs.RecentLimit is < 6 or > 10) errors.Add("最近项目数量为 6–10 条。");
+            errors.AddRange(ShortcutRules.Validate(prefs.Shortcuts));
         }
         return errors;
     }

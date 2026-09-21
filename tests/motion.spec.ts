@@ -152,7 +152,7 @@ test('a stack wider than the dock keeps its whole painted width inside the nativ
   const wrap = page.locator('.dock-wrap');
   await expect(wrap).toBeVisible();
   await expect.poll(() => wrap.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
-  await page.getByRole('button', { name: '展开 品牌设计 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 品牌设计 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(page.locator('.stack-panel')).toBeVisible();
   await page.mouse.move(20, 650);
   await page.evaluate(() => (window as any).__motionShow(false));

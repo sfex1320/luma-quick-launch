@@ -142,7 +142,7 @@ console.log('LUMA_TWELFTH_FIXTURE_OK');\n`);
     await expect.poll(() => dock.locator('.dock').evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0);
   };
   const closeStack = async () => { const close = dock.getByRole('button', { name: '关闭堆叠', exact: true }); if (await close.count()) await close.click(); };
-  const openRepo = async () => { await showDock(); await closeStack(); await dock.getByRole('button', { name: '展开 代码仓库 堆叠', exact: true }).click(); await expect(dock.locator('.directory-footer')).toBeVisible(); };
+  const openRepo = async () => { await showDock(); await closeStack(); await dock.locator('.dock-project').filter({hasText:'代码仓库'}).press('ArrowDown'); await expect(dock.locator('.directory-footer')).toBeVisible(); };
   await showDock();
   await expect(dock.locator('.dock-label')).toHaveCount(state.projects.length);
   const labels = await dock.locator('.dock-label').evaluateAll(nodes => nodes.map(node => {
@@ -214,7 +214,7 @@ console.log('LUMA_TWELFTH_FIXTURE_OK');\n`);
   check('explicit test script takes precedence after re-detection and runs offline in the fixture cwd');
   closeFixtureTerminals(); await closeStack();
   if (recentApp) {
-    await showDock(); await dock.getByRole('button', { name: '展开 Photoshop 最近验收 堆叠', exact: true }).click();
+    await showDock(); await dock.locator('.dock-project').filter({hasText:'Photoshop 最近验收'}).press('ArrowDown');
     await expect.poll(() => dock.locator('.recent-list>button').count()).toBeGreaterThan(0);
     evidence.recent = await dock.locator('.recent-list>button').evaluateAll(buttons => ({ count: buttons.length, fullLocationDisplayed: buttons.every(button => {
       const location = button.querySelector('small'), style = getComputedStyle(location);

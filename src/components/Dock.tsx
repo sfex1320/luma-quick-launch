@@ -1,7 +1,8 @@
 import { hasUrlText } from '../core/urls';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import { ChevronDown, Search, Settings2, X, Pencil, Check } from 'lucide-react';
-import type { LaunchItem, Preferences, Project } from '../contracts';
+import type { LaunchItem, Preferences, Project, ShortcutBinding } from '../contracts';
+import { contextActions, matchPanelShortcut } from '../core/hotkeys';
 import { computeLayout } from '../core/layout';
 import { releaseGesture } from '../core/gesture';
 import { GroupIcon } from './GroupIcon';
@@ -13,6 +14,7 @@ import { nativeMode, request, subscribeHost } from '../bridge';
 import { RecentProjects } from './RecentProjects';
 import { useRightPan } from './useRightPan';
 import { ContextMenu, type MenuAction } from './ContextMenu';
+const isSoftwareGroup = (project: Project) => project.items.length > 1 && project.items.some(item => item.kind === 'app');
 interface Props { projects: Project[]; preferences: Preferences; onOpen: (p: Project, item: LaunchItem) => void; onSettings: () => void; onSearch: () => void; onDropFiles?: (files: File[], projectId?: string) => Promise<void>; onDropText?: (text: string, projectId?: string) => Promise<void>; onGroup?: (sourceId: string, targetId: string) => void; onUngroup?: (projectId: string) => void; onReorder?: (sourceId: string, targetId: string, after: boolean) => void; onRemove?: (projectId: string, itemId?: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; overlay?: boolean }
 export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, onDropFiles, onDropText, onGroup, onUngroup, onReorder, onRemove, onMoveItem, overlay = false }: Props) {
   const pan = useRightPan('x');
@@ -35,6 +37,7 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
   const menuGeneration = useRef(0);
   const lastVisibility = useRef<number | undefined>(undefined);
   const testRequest = useRef(false);
+  const lastShortcutSerial = useRef(-1), shortcutBusy = useRef(false);
   const [runningTest, setRunningTest] = useState(false);
   const groupDrag = useRef<{ source: string; x: number; y: number; moved: boolean; button: HTMLButtonElement; pointer: number } | null>(null);
   const [pressing, setPressing] = useState(false), [keyboard, setKeyboard] = useState(false), [importing, setImporting] = useState(false);
@@ -198,15 +201,62 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
     const target = child?.dataset.projectId === record.project.id ? 'child' : record.button.contains(element ?? null) ? 'origin' : 'outside';
     const action = record.origin === 'entry' ? (target === 'child' && (record.long || record.button.contains(element)) ? 'child' : 'cancel') : releaseGesture(record.long, target, false);
     clearPress();
-    if (action === 'root') { onOpen(record.project, record.project.items[0]); setStack(null); }
+    if (action === 'root') { if (isSoftwareGroup(record.project)) showStack(record.project.id); else { onOpen(record.project, record.project.items[0]); setStack(null); } }
     else if (action === 'child' && child) activateEntry(record.project, child);
     else if (action === 'cancel') setStack(null);
   };
   const open = (project: Project, item: LaunchItem) => { onOpen(project, item); close(); };
-  return <div ref={container} className={`dock-container ${overlay ? 'overlay-dock' : ''} ${dragging ? 'drop-active' : ''}`}
+  useEffect(() => {
+    const applyViewAction = (binding: ShortcutBinding) => {
+      if (directoryBusy) return;
+      clearPress(); clearGroupDrag(); clearTimeout(hideTimer.current); setKeyboard(true);
+      if (binding.action === 'project') {
+        if (projects.some(project => project.id === binding.projectId)) showStack(binding.projectId!);
+        else setMenuError('快捷键目标已失效');
+      } else if (binding.action === 'edit') { setEditing(value => !value); close(); }
+      else if (binding.action === 'dock') { setVisible(true); close(); }
+    };
+    const unsubscribe = subscribeHost(event => {
+      if (!overlay || event.event !== 'shortcut.activated' || event.data.serial <= lastShortcutSerial.current) return;
+      lastShortcutSerial.current = event.data.serial;
+      const binding = p.shortcuts?.find(binding => binding.id === event.data.id);
+      if (binding) applyViewAction(binding);
+    });
+    const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || (nativeMode && !overlay) || shortcutBusy.current || directoryBusy || press.current || dragging || groupDrag.current) return;
+      const binding = matchPanelShortcut(p.shortcuts ?? [], event, {
+        focused: document.hasFocus() && !!container.current?.contains(document.activeElement),
+        visible: visible && !document.hidden,
+        editing: !!(event.target as Element)?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || !!document.querySelector('dialog[open],[role="dialog"]'),
+      });
+      if (!binding) return;
+      event.preventDefault(); event.stopPropagation();
+      if ((contextActions as readonly string[]).includes(binding.action)) {
+        const columns = [...container.current?.querySelectorAll<HTMLElement>('.folder-column') ?? []];
+        const column = columns.at(-1);
+        const selectors: Record<string, string> = { openDirectory: '.directory-open-current:not(.directory-run-test)', newFolder: '[data-entry-action="create-directory"]', copyAddress: '[data-entry-action="copy-directory"]', runProject: '[data-test-task-id]' };
+        const button = column?.querySelector<HTMLButtonElement>(selectors[binding.action]);
+        if (button && !button.disabled) { clearPress(); button.click(); }
+        else setMenuError('请先进入包含该功能的目录');
+        return;
+      }
+      if (nativeMode) {
+        shortcutBusy.current = true;
+        void request('shortcut.execute', { id: binding.id }).then(result => { if (!result.accepted) setMenuError('快捷键暂不可用，请检查绑定和焦点'); }).catch(error => setMenuError(error.message)).finally(() => { shortcutBusy.current = false; });
+      } else if (binding.action === 'search') onSearch();
+      else if (binding.action === 'settings') onSettings();
+      else if (binding.action === 'item') {
+        const project = projects.find(project => project.id === binding.projectId), item = project?.items.find(item => item.id === binding.itemId);
+        if (project && item) open(project, item); else setMenuError('快捷键目标已失效');
+      } else applyViewAction(binding);
+    };
+    window.addEventListener('keydown', key, true);
+    return () => { unsubscribe(); window.removeEventListener('keydown', key, true); };
+  }, [p.shortcuts, projects, visible, overlay, directoryBusy, dragging, onSearch, onSettings, onOpen]);
+  return <div ref={container} tabIndex={-1} aria-label="Luma 快捷面板" className={`dock-container ${overlay ? 'overlay-dock' : ''} ${dragging ? 'drop-active' : ''}`}
+    onPointerDownCapture={event => { if (event.button === 0 && !(event.target as Element).closest('button,input,textarea,select,[contenteditable]')) container.current?.focus({ preventScroll: true }); setKeyboard(false); }}
     onKeyDownCapture={event => { if (event.key !== 'Escape') { setKeyboard(true); clearTimeout(hideTimer.current); } }}
     onFocusCapture={event => { if (event.target.matches(':focus-visible')) { setKeyboard(true); clearTimeout(hideTimer.current); } }}
-    onPointerDownCapture={() => setKeyboard(false)}
     onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboard(false); }}
     onDragOver={event => { if (!event.dataTransfer.types.includes('Files') && !hasUrlText(event.dataTransfer)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'; clearTimeout(hideTimer.current); clearTimeout(dragLeaveTimer.current); setDragging(true); setVisible(true); }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { clearTimeout(dragLeaveTimer.current); dragLeaveTimer.current = setTimeout(() => setDragging(false), 120); } }}
@@ -220,14 +270,13 @@ export function Dock({ projects, preferences: p, onOpen, onSettings, onSearch, o
           onDragOver={event => { if (editing && event.dataTransfer.types.includes('application/x-luma-entry')) { event.preventDefault(); event.stopPropagation(); } }}
           onDrop={event => { if (!editing || !event.dataTransfer.types.includes('application/x-luma-entry')) return; event.preventDefault(); event.stopPropagation(); try { const { projectId, itemId } = JSON.parse(event.dataTransfer.getData('application/x-luma-entry')); onMoveItem?.(projectId, itemId, (event.target as HTMLElement).closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject); } catch { setMenuError('无法读取快捷引用，请重新拖入。'); } }}>
         {shown.map(project => <div className={`dock-slot ${groupSource === project.id ? 'group-drag-source' : ''} ${groupTarget === project.id ? 'group-drop-target drop-' + groupIntent : ''}`} data-drop-project={project.id} key={project.id} style={{ width: layout.cell }} onContextMenu={event => { if (!(event.target as HTMLElement).closest('.split-folder-actions')) return; event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [{ label: '打开', action: () => open(project, project.items[0]) }, { label: '进入子菜单', action: () => showStack(project.id) }, { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path); } }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true }] }); }}>
-          <SplitFolderTile enabled={!editing && (project.items.length > 1 || ['folder','app'].includes(project.items[0].kind))} software={project.items.length === 1 && project.items[0].kind === 'app'} className="dock-split" name={project.name} projectId={project.id} entryId={project.items[0].id} onOpen={() => open(project, project.items[0])} onEnter={() => showStack(project.id)} gesture={{ onPointerDown: event => begin(event, project, 'entry'), onPointerMove: move, onPointerUp: end, onPointerCancel: clearPress }}>
-          <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [ { label: '打开', action: () => open(project, project.items[0]) }, { label: '进入子菜单', action: () => showStack(project.id) }, { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path).catch(() => setMenuError('复制地址失败')); } }, { label: '整理快捷项', action: () => setEditing(true) }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true } ] }); }} onClick={event => { if (event.detail === 0) { if (editing) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>
+          <SplitFolderTile enabled={!editing && (project.items.length > 1 || ['folder','app'].includes(project.items[0].kind))} enterOnly={isSoftwareGroup(project)} software={project.items.length === 1 && project.items[0].kind === 'app'} className="dock-split" name={project.name} projectId={project.id} entryId={project.items[0].id} onOpen={() => open(project, project.items[0])} onEnter={() => showStack(project.id)} gesture={{ onPointerDown: event => begin(event, project, 'entry'), onPointerMove: move, onPointerUp: end, onPointerCancel: clearPress }}>
+          <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [ { label: '打开', action: () => open(project, project.items[0]) }, { label: '进入子菜单', action: () => showStack(project.id) }, { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path).catch(() => setMenuError('复制地址失败')); } }, { label: '整理快捷项', action: () => setEditing(true) }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true } ] }); }} onClick={event => { if (event.detail === 0) { if (editing || isSoftwareGroup(project)) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>
             <GroupIcon projectId={project.id} items={project.items} color={project.color} size={layout.icon}/>
             <span className="dock-label">{project.name}</span>
           </button>
           </SplitFolderTile>
           {editing && <button className="shortcut-remove" aria-label={`移除快捷项 ${project.name}`} title="仅移除快捷引用" onClick={() => onRemove?.(project.id)}><X size={12}/></button>}
-          <button className="stack-chevron" aria-label={`展开 ${project.name} 堆叠`} onClick={() => { clearTimeout(hideTimer.current); showStack(stack === project.id ? null : project.id); }}><ChevronDown size={11}/></button>
         </div>)}
         {!pinned.length && <span className="dock-empty">拖入文件夹、软件或文件</span>}
         </div>

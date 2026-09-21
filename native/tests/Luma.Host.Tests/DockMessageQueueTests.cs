@@ -20,6 +20,7 @@ public class DockMessageQueueTests
     [InlineData("folder.rename")]
     [InlineData("folder.move")]
     [InlineData("shell.openItem")]
+    [InlineData("shortcut.execute")]
     [InlineData("shell.getRecent")]
     [InlineData("shell.openRecent")]
     [InlineData("website.inspect")]

@@ -49,6 +49,7 @@ public interface IWindowHost
     IntPtr SettingsOwnerHandle { get; }
     void ShowDock();
     void CloseSearch() { }
+    bool IsShortcutClientFocused(string clientId) => false;
 }
 
 /// <summary>系统文件夹选择对话框抽象；生产实现为 IFileOpenDialog，测试可注入 fake。</summary>
@@ -110,6 +111,7 @@ public sealed class BridgeRouter
     private readonly RecentProjectService _recentProjects;
     private readonly ShortcutImportService _imports = new();
     private readonly SystemIntegrationService _integration;
+    public ShortcutService? Shortcuts { get; set; }
 
     public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null, FolderThumbnailService? thumbnails = null, RecentProjectService? recentProjects = null)
     {
@@ -145,6 +147,7 @@ public sealed class BridgeRouter
         _folders.Detach(client.ClientId);
         _projectTests.Detach(client.ClientId);
         _recentProjects.Detach(client.ClientId);
+        _sync.Post(() => Shortcuts?.Detach(client.ClientId));
         client.Detach();
         Log.Info($"桥接客户端断开：{client.ClientId}（剩余 {Clients.Count} 个）");
     }
@@ -183,6 +186,11 @@ public sealed class BridgeRouter
 
             switch (method)
             {
+                case "shortcut.getStatus":
+                case "shortcut.execute":
+                case "shortcut.setRecording":
+                    await HandleShortcut(source, id, method, parameters);
+                    return;
                 case "website.inspect":
                     if (!hasParams || parameters.EnumerateObject().Count() != 1 || !parameters.TryGetProperty("url", out var urlEl) || urlEl.ValueKind != JsonValueKind.String || !WebsiteService.IsUrl(urlEl.GetString()))
                         RespondError(source, id, ProtocolErrors.InvalidRequest);
@@ -334,6 +342,32 @@ public sealed class BridgeRouter
             RespondOk(source, id, new { task = await _projectTests.DetectAsync(source.ClientId, project.GetString()!, item.GetString()!, token.GetString()!) });
         else
             RespondOk(source, id, new { opened = await _projectTests.RunAsync(source.ClientId, project.GetString()!, item.GetString()!, token.GetString()!) });
+    }
+
+    private async Task HandleShortcut(IHostClient source, string id, string method, JsonElement parameters)
+    {
+        var expected = method == "shortcut.getStatus" ? 0 : 1;
+        var field = method == "shortcut.setRecording" ? "active" : "id";
+        if (!Clients.Contains(source) || parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != expected ||
+            (expected == 1 && (!parameters.TryGetProperty(field, out var value) ||
+            (field == "active" ? value.ValueKind is not (JsonValueKind.True or JsonValueKind.False) :
+                value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()) || value.GetString()!.Length > 200))))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        var result = await _sync.PostAsync<object>(async () =>
+        {
+            if (!Clients.Contains(source)) return new { accepted = false };
+            if (method == "shortcut.getStatus") return new { bindings = Shortcuts?.GetStatus() ?? [] };
+            if (method == "shortcut.setRecording")
+            {
+                var active = parameters.GetProperty("active").GetBoolean();
+                var accepted = Shortcuts is not null && (!active || _windows.IsShortcutClientFocused(source.ClientId));
+                if (accepted) Shortcuts!.SetRecording(source.ClientId, active);
+                return new { accepted };
+            }
+            return new { accepted = Shortcuts is not null && source.ClientId == "dock" &&
+                await Shortcuts.ExecutePanelAsync(parameters.GetProperty("id").GetString()!, _windows.IsShortcutClientFocused(source.ClientId)) };
+        });
+        RespondOk(source, id, result);
     }
 
     private async Task HandleSystemIntegration(IHostClient source, string id, string method, JsonElement parameters)

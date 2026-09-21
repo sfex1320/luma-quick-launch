@@ -9,6 +9,7 @@ import { CrystalFolder } from './components/CrystalFolder';
 import { Dock } from './components/Dock';
 import { Appearance } from './components/Appearance';
 import { SystemIntegration } from './components/SystemIntegration';
+import { ShortcutSettings } from './components/ShortcutSettings';
 import { Modal } from './components/Modal';
 import { ProjectEditor } from './components/ProjectEditor';
 import { addShortcuts } from './core/shortcuts';
@@ -68,7 +69,7 @@ export default function App() {
     return () => { window.removeEventListener('dragover', preventFileNavigation); window.removeEventListener('drop', preventFileNavigation); };
   }, [overlay]);
   useEffect(() => { document.documentElement.dataset.theme = state?.preferences.theme ?? 'light'; document.documentElement.dataset.motion = state?.preferences.reducedMotion ? 'reduced' : 'full'; document.body.classList.toggle('overlay-body', overlay); document.documentElement.classList.toggle('overlay-html', overlay); }, [state?.preferences.theme, state?.preferences.reducedMotion, overlay]);
-  useEffect(() => { const handler = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (nativeMode) void request('window.openSettings', { section: 'search' }).catch(error => notify(error.message)); else setSearchOpen(true); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [overlay]);
+  useEffect(() => { const handler = (e: KeyboardEvent) => { if (!e.defaultPrevented && !e.repeat && !e.isComposing && !e.altKey && !e.shiftKey && (e.ctrlKey || e.metaKey) && e.code === 'KeyK' && !(e.target as Element)?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="dialog"]') && !document.querySelector('dialog[open],[role="dialog"]')) { e.preventDefault(); if (nativeMode) void request('window.openSettings', { section: 'search' }).catch(error => notify(error.message)); else setSearchOpen(true); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [overlay]);
   const openItem = async (project: Project, item: LaunchItem) => {
     if (launchBusy.current) return;
     if (status !== '已保存') { notify('正在保存配置，请稍后再打开。'); return; }
@@ -228,6 +229,7 @@ export default function App() {
 
           {page === 'system' && <>
             <SystemIntegration/>
+            <ShortcutSettings preferences={state.preferences} projects={state.projects} onChange={preferences => change(s => ({ ...s, preferences }))}/>
             <section className="cp-card">
               <header className="cp-card-head"><strong>关于 Luma</strong><span className="cp-badge">v{appVersion} · 测试版</span></header>
               <div className="cp-kv"><span>升级方式</span><strong>安装版覆盖升级 · 便携版完整解压</strong></div>
@@ -254,7 +256,7 @@ export default function App() {
     </div>}
     {editor && <ProjectEditor project={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} onSave={project => { change(s => ({ ...s, projects: s.projects.some(p => p.id === project.id) ? s.projects.map(p => p.id === project.id ? project : p) : [...s.projects, project] })); setEditor(null); notify('项目已更新'); }}/>}
     {searchOpen && <Modal title="搜索项目与入口" onClose={() => { setSearchOpen(false); setQuery(''); }}><div className="search-input"><Search size={20}/><input autoFocus aria-label="搜索项目和文件夹" placeholder="项目名称、文件夹、路径…" value={query} onChange={e => setQuery(e.target.value)}/><kbd>ESC</kbd></div><div className="search-results">{state.projects.flatMap(project => project.items.filter(item => `${project.name} ${item.name} ${item.path}`.toLowerCase().includes(query.toLowerCase())).map(item => <button key={`${project.id}-${item.id}`} onClick={() => { void openItem(project, item); setSearchOpen(false); setQuery(''); }}><CrystalFolder color={project.color} size={30}/><span><strong>{item.name}</strong><small>{project.name} · {item.path}</small></span><ArrowUpRight size={16}/></button>))}{!state.projects.some(p => p.items.some(i => `${p.name} ${i.name} ${i.path}`.toLowerCase().includes(query.toLowerCase()))) && <p className="empty-message">没有匹配的入口</p>}</div></Modal>}
-    {help && <Modal title="一点小手势，大一点的专注" onClose={() => setHelp(false)}><div className="help-steps"><div><MousePointer2/><span><strong>长按 · 滑动 · 松手</strong><p>在面板上长按项目约 300 毫秒，滑向其他文件夹，松手打开。滑出面板松手取消。</p></span></div><div><FolderOpen/><span><strong>单击，直达主目录</strong><p>点击项目进入第一个目录；小箭头和右键也能展开堆叠。</p></span></div><div><SlidersHorizontal/><span><strong>留出恰好的空间</strong><p>在外观页调整宽高、图标与材质。尺寸不足时自动适配，超出入口收进「更多」。</p></span></div><div><Command/><span><strong>键盘也一样顺手</strong><p>Ctrl K 搜索，Tab 移动焦点，项目上按下方向键展开，Esc 关闭。</p></span></div></div></Modal>}
+    {help && <Modal title="一点小手势，大一点的专注" onClose={() => setHelp(false)}><div className="help-steps"><div><MousePointer2/><span><strong>长按 · 滑动 · 松手</strong><p>在面板上长按项目约 300 毫秒，滑向其他文件夹，松手打开。滑出面板松手取消。</p></span></div><div><FolderOpen/><span><strong>单击，直达主目录</strong><p>单个入口直接打开，软件组点击进入；悬停“进入”、长按或右键可展开。</p></span></div><div><SlidersHorizontal/><span><strong>留出恰好的空间</strong><p>在外观页调整尺寸。主栏右键横拖；子菜单按住空白处，用左键抓手上下拖动。</p></span></div><div><Command/><span><strong>键盘也一样顺手</strong><p>在设置与备份中添加快捷键。单键仅面板有焦点时生效，组合键可全局使用；输入时暂停面板快捷键。</p></span></div></div></Modal>}
     {groupSourceId && <Modal title="合并到其他图标" onClose={() => setGroupSourceId(null)}><p className="group-description">将「{state.projects.find(p => p.id === groupSourceId)?.name}」的入口加入下列目标。目标保留名称、颜色、置顶状态及默认入口；重复路径只保留一份，实际文件不会移动。</p><div className="group-targets">{state.projects.filter(p => p.id !== groupSourceId).map(project => <button key={project.id} aria-label={`合并到 ${project.name}`} onClick={() => groupProjects(groupSourceId, project.id)}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={36}/><span><strong>{project.name}</strong><small>{project.items.length} 个入口{project.pinned ? ' · 已置顶' : ' · 未置顶'}</small></span></button>)}</div></Modal>}
     {toast && <div role="status" data-native-hit={overlay ? true : undefined} className="toast"><Check size={16}/>{toast}<button aria-label="关闭提示" onClick={() => setToast('')}><X size={14}/></button></div>}
   </>;

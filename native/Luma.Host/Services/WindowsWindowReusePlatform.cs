@@ -136,13 +136,15 @@ internal sealed class WindowsWindowReusePlatform(Func<string, string?> launch) :
         return found;
     }
 
-    public bool Activate(nint window)
+    public bool Activate(nint window) => Activate(window, () => true);
+
+    public bool Activate(nint window, Func<bool> stillAuthorized)
     {
         if (!IsWindow(window)) return false;
         // SW_RESTORE only for minimized windows, preserving an already maximized window.
         var accepted = WindowActivation.RestoreAndActivate(() => IsIconic(window),
             () => ShowWindowAsync(window, 9), () => SetForegroundWindow(window),
-            () => GetForegroundWindow() == window);
+            () => GetForegroundWindow() == window, stillAuthorized: stillAuthorized);
         Log.Info($"Shell 复用窗口 hwnd={window} foreground={accepted}");
         return accepted;
     }

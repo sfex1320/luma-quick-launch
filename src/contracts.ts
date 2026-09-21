@@ -1,11 +1,33 @@
 import { isWebsiteUrl, isWebsiteIcon } from './core/websiteValidation.ts';
 import { z } from 'zod';
+import { chordId, contextActions, reservedChord, validHotkeyCode } from './core/hotkeys.ts';
+
+export const ShortcutBindingSchema = z.object({
+  id: z.string().min(1).max(128).refine(value => !!value.trim(), '快捷键ID不能为空白'), code: z.string().refine(validHotkeyCode, '请选择有效的非修饰按键'),
+  ctrl: z.boolean(), shift: z.boolean(), alt: z.boolean(), scope: z.enum(['panel', 'global']),
+  action: z.enum(['dock','search','settings','edit','project','item','openDirectory','newFolder','copyAddress','runProject']),
+  projectId: z.string().min(1).max(200).refine(value => !!value.trim(), '项目ID不能为空白').optional(), itemId: z.string().min(1).max(200).refine(value => !!value.trim(), '入口ID不能为空白').optional(),
+}).superRefine((binding, ctx) => {
+  const fail = (message: string) => ctx.addIssue({ code: 'custom', message });
+  if (binding.scope === 'global' && !(binding.ctrl || binding.shift || binding.alt)) fail('单键只可在面板内使用');
+  if (reservedChord(binding)) fail('Ctrl + K 和 Ctrl + Alt + 空格已用于搜索');
+  if (binding.scope === 'global' && (contextActions as readonly string[]).includes(binding.action)) fail('当前目录操作只能在面板内使用');
+  if (binding.action === 'project' || binding.action === 'item') {
+    if (!binding.projectId || binding.action === 'item' && !binding.itemId) fail('请选择已保存的项目和入口');
+    if (binding.action === 'project' && binding.itemId) fail('项目快捷键不接受入口ID');
+  } else if (binding.projectId || binding.itemId) fail('功能快捷键不接受项目或入口ID');
+});
+export type ShortcutBinding = z.infer<typeof ShortcutBindingSchema>;
+export const ShortcutListSchema = z.array(ShortcutBindingSchema).max(128).superRefine((bindings, ctx) => {
+  if (new Set(bindings.map(binding => binding.id)).size !== bindings.length) ctx.addIssue({ code: 'custom', message: '快捷键ID重复' });
+  if (new Set(bindings.map(chordId)).size !== bindings.length) ctx.addIssue({ code: 'custom', message: '该按键组合已分配，请先移除原绑定' });
+});
 
 export const ColorSchema = z.enum(['mint', 'blue', 'violet', 'peach', 'gold']);
 export const LaunchCommandSchema = z.object({ command: z.string().min(1).max(1000).refine(value => value.trim().length > 0 && !/[\r\n\0]/.test(value), '请输入非空的单行 CMD 命令'), workingDirectory: z.string().min(1).max(4096).refine(value => !/[\r\n\0]/.test(value) && /^(?:[a-zA-Z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(value), '请输入有效的绝对工作目录') });
 export const ItemSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder', 'file', 'app', 'url']), launch: LaunchCommandSchema.optional(), note: z.string().max(240).optional(), websiteIcon: z.string().max(87406).refine(isWebsiteIcon, '网站图标必须为小尺寸静态 PNG').optional() }).refine(item => item.kind !== 'url' || isWebsiteUrl(item.path), '网址必须是有效的 HTTP(S) 地址').refine(item => !item.websiteIcon || item.kind === 'url', '只有网址入口可保存网站图标');
 export const ProjectSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(60), description: z.string().max(160), color: ColorSchema, pinned: z.boolean(), items: z.array(ItemSchema).min(1).max(200) });
-export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean(), recentLimit: z.number().int().min(6).max(10).optional() });
+export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean(), recentLimit: z.number().int().min(6).max(10).optional(), shortcuts: ShortcutListSchema.optional() });
 export const StateSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), projects: z.array(ProjectSchema).max(100), preferences: PreferencesSchema }).superRefine((state, ctx) => {
   const ids = state.projects.map(p => p.id);
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', message: 'Duplicate project ID' });
@@ -43,6 +65,9 @@ export type IntegrationStatus = z.infer<typeof IntegrationSchema>;
 export const RecentSchema = z.object({ entries: z.array(z.object({ id: z.string(), name: z.string(), path: z.string(), kind: z.enum(['file','folder']) })).max(10), note: z.string() });
 export const MutationSchema = z.object({ changedCount: z.number(), completed: z.boolean(), errorCode: z.string().nullable(), message: z.string().nullable() });
 export interface Methods {
+  'shortcut.getStatus': { params: Record<string, never>; result: { bindings: { id: string; registered: boolean; message: string }[] } };
+  'shortcut.execute': { params: { id: string }; result: { accepted: boolean } };
+  'shortcut.setRecording': { params: { active: boolean }; result: { accepted: boolean } };
   'website.inspect': { params: { url: string }; result: { url: string; title: string; dataUrl: string | null } };
   'shell.getRecent': { params: { projectId: string; itemId: string; limit: number }; result: z.infer<typeof RecentSchema> };
   'shell.openRecent': { params: { projectId: string; itemId: string; entryId: string }; result: { accepted: boolean } };
@@ -72,8 +97,11 @@ export interface Methods {
   'window.openSettings': { params: { section: 'projects' | 'appearance' | 'search' }; result: { accepted: boolean } };
 }
 export type Method = keyof Methods;
-export type HostEvent = { event: 'app.stateChanged'; data: AppState } | { event: 'window.visibility'; data: { visible: boolean; visibilityId?: number } };
+export type HostEvent = { event: 'app.stateChanged'; data: AppState } | { event: 'window.visibility'; data: { visible: boolean; visibilityId?: number } } | { event: 'shortcut.activated'; data: { id: string; serial: number } };
 export const resultSchemas = {
+  'shortcut.getStatus': z.object({ bindings: z.array(z.object({ id: z.string(), registered: z.boolean(), message: z.string() })).max(128) }),
+  'shortcut.execute': z.object({ accepted: z.boolean() }),
+  'shortcut.setRecording': z.object({ accepted: z.boolean() }),
   'website.inspect': z.object({ url: z.string(), title: z.string(), dataUrl: IconResponseSchema.shape.dataUrl }),
   'shell.getRecent': RecentSchema,
   'shell.openRecent': z.object({ accepted: z.boolean() }),
@@ -102,4 +130,4 @@ export const resultSchemas = {
   'window.sync': z.object({ applied: z.boolean() }),
   'window.openSettings': z.object({ accepted: z.boolean() }),
 };
-export const HostEventSchema = z.discriminatedUnion('event', [z.object({ event: z.literal('app.stateChanged'), data: StateSchema }), z.object({ event: z.literal('window.visibility'), data: z.object({ visible: z.boolean(), visibilityId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }) })]);
+export const HostEventSchema = z.discriminatedUnion('event', [z.object({ event: z.literal('app.stateChanged'), data: StateSchema }), z.object({ event: z.literal('window.visibility'), data: z.object({ visible: z.boolean(), visibilityId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }) }), z.object({ event: z.literal('shortcut.activated'), data: z.object({ id: z.string(), serial: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }) })]);

@@ -57,7 +57,7 @@ async function setup(page: Page) {
   await page.goto('/?view=dock&mode=native');
   await expect(page.locator('.dock')).toBeVisible();
   await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
-  await page.getByRole('button', { name: '展开 源项目 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 源项目 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(page.locator('.stack-item[data-item-id="source-file-0"]')).toBeVisible();
 }
 const tile = (page: Page, id: string) => page.locator(`.stack-item[data-item-id="${id}"]`);
@@ -155,7 +155,7 @@ test('real-entry drag does nothing on ordinary grid and only the explicit footer
   expect(await calls(page, 'folder.move')).toHaveLength(0); await form.getByRole('button', { name: '取消', exact: true }).click();
   await tile(page, 'source-file-0').locator('..').dispatchEvent('dragend', { dataTransfer: data });
   await page.getByRole('button', { name: '关闭堆叠', exact: true }).click();
-  await page.getByRole('button', { name: '展开 目标项目 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 目标项目 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await page.getByRole('button', { name: '移动到当前实际目录 目标项目', exact: true }).dispatchEvent('drop', { dataTransfer: data });
   await expect(form).toContainText('原文件.txt'); await expect(form).toContainText('目标项目');
   await form.getByRole('button', { name: '确认移动', exact: true }).click();
@@ -212,12 +212,12 @@ test('a forged drag with a raw path is not accepted by the actual move target', 
   await expect(page.getByRole('status')).toContainText('重新拖入'); expect(await calls(page, 'folder.move')).toHaveLength(0);
 });
 
-test('right-button panning suppresses the entry context menu', async ({ page }) => {
+test('right-button movement keeps the entry context menu available', async ({ page }) => {
   await setup(page); const grid = page.locator('.directory-items'); const box = await grid.boundingBox();
   await page.mouse.move(box!.x + 30, box!.y + 30); await page.mouse.down({ button: 'right' });
   await page.mouse.move(box!.x + 30, box!.y + 55, { steps: 4 }); await page.mouse.up({ button: 'right' });
-  await tile(page, 'source-file-0').dispatchEvent('contextmenu', { clientX: box!.x + 60, clientY: box!.y + 50 });
-  await expect(page.getByRole('menu', { name: '快捷操作' })).toHaveCount(0);
+  await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible();
+  expect(await grid.evaluate(node => node.scrollTop)).toBe(0);
   expect(await calls(page, 'folder.open')).toHaveLength(0);
 });
 

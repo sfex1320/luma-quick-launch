@@ -1,4 +1,64 @@
 {
+  "shortcut.getStatus": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "bindings": {
+        "maxItems": 128,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "registered": {
+              "type": "boolean"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "registered",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "bindings"
+    ],
+    "additionalProperties": false
+  },
+  "shortcut.execute": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "shortcut.setRecording": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
   "website.inspect": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -429,6 +489,74 @@
             "type": "integer",
             "minimum": 6,
             "maximum": 10
+          },
+          "shortcuts": {
+            "maxItems": 128,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "code": {
+                  "type": "string"
+                },
+                "ctrl": {
+                  "type": "boolean"
+                },
+                "shift": {
+                  "type": "boolean"
+                },
+                "alt": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "panel",
+                    "global"
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "dock",
+                    "search",
+                    "settings",
+                    "edit",
+                    "project",
+                    "item",
+                    "openDirectory",
+                    "newFolder",
+                    "copyAddress",
+                    "runProject"
+                  ]
+                },
+                "projectId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "itemId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "ctrl",
+                "shift",
+                "alt",
+                "scope",
+                "action"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -625,6 +753,74 @@
             "type": "integer",
             "minimum": 6,
             "maximum": 10
+          },
+          "shortcuts": {
+            "maxItems": 128,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "code": {
+                  "type": "string"
+                },
+                "ctrl": {
+                  "type": "boolean"
+                },
+                "shift": {
+                  "type": "boolean"
+                },
+                "alt": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "panel",
+                    "global"
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "dock",
+                    "search",
+                    "settings",
+                    "edit",
+                    "project",
+                    "item",
+                    "openDirectory",
+                    "newFolder",
+                    "copyAddress",
+                    "runProject"
+                  ]
+                },
+                "projectId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "itemId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "ctrl",
+                "shift",
+                "alt",
+                "scope",
+                "action"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [

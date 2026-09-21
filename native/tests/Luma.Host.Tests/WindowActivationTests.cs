@@ -6,6 +6,17 @@ namespace Luma.Host.Tests;
 public class WindowActivationTests
 {
     [Fact]
+    public void RevokedDuringAsyncRestoreDoesNotActivateAfterWaiting()
+    {
+        var authorized = true;
+        var restored = 0;
+        var activated = 0;
+        Assert.False(WindowActivation.RestoreAndActivate(() => true, () => restored++,
+            () => { activated++; return true; }, () => true, _ => authorized = false, () => authorized));
+        Assert.Equal(1, restored);
+        Assert.Equal(0, activated);
+    }
+    [Fact]
     public void AcceptedRequestStillRequiresObservedForegroundWindow()
     {
         var elapsed = 0;

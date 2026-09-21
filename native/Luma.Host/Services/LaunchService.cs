@@ -21,13 +21,16 @@ public interface IShellExecutor
 {
     /// <summary>返回 null 表示系统已接受启动；否则为中文错误。</summary>
     string? TryLaunch(string path);
+    string? TryLaunch(string path, Func<bool> stillAuthorized) => stillAuthorized() ? TryLaunch(path) : "入口或快捷键已变更，请重新操作。";
     int LaunchCount { get; }
 }
 
 public sealed class RealShellExecutor : IShellExecutor
 {
     public static readonly RealShellExecutor Shared = new();
-    private static readonly WindowReuseService Reuse = new(new WindowsWindowReusePlatform(LaunchWithShell));
+    private readonly WindowReuseService _reuse;
+    public RealShellExecutor() : this(new WindowsWindowReusePlatform(LaunchWithShell)) { }
+    internal RealShellExecutor(IWindowReusePlatform platform) => _reuse = new(platform);
     private static readonly Lazy<System.Collections.Concurrent.BlockingCollection<Action>> Queue = new(() =>
     {
         var queue = new System.Collections.Concurrent.BlockingCollection<Action>(32);
@@ -41,8 +44,11 @@ public sealed class RealShellExecutor : IShellExecutor
     public int LaunchCount => Volatile.Read(ref _launchCount);
 
     public string? TryLaunch(string path) => TryLaunch(path, CancellationToken.None);
+    public string? TryLaunch(string path, Func<bool> stillAuthorized) => TryLaunch(path, CancellationToken.None, stillAuthorized);
 
-    public string? TryLaunch(string path, CancellationToken callerCancellation)
+    public string? TryLaunch(string path, CancellationToken callerCancellation) => TryLaunch(path, callerCancellation, null);
+
+    public string? TryLaunch(string path, CancellationToken callerCancellation, Func<bool>? stillAuthorized)
     {
         // Every caller is a background launch operation. One bounded STA worker owns COM
         // objects; blocked Shell extensions cannot grow workers or stall window.sync.
@@ -51,7 +57,7 @@ public sealed class RealShellExecutor : IShellExecutor
         var token = cancellation.Token;
         if (!Queue.Value.TryAdd(() =>
         {
-            try { completion.TrySetResult(Reuse.Open(path, token)); }
+            try { completion.TrySetResult(_reuse.Open(path, token, stillAuthorized)); }
             catch (OperationCanceledException) { completion.TrySetResult("窗口查找超时，请稍后重试。"); }
             catch (Exception ex) { Log.Error($"窗口复用失败：{ex}"); completion.TrySetResult("无法检查或打开目标窗口，请稍后重试。"); }
             finally { cancellation.Dispose(); }
@@ -130,7 +136,7 @@ public sealed class LaunchService
     }
 
     /// <summary>调用方（BridgeRouter）负责把此方法放进后台任务，避免网络路径卡 UI。</summary>
-    public LaunchOutcome OpenItem(string requestId, string projectId, string itemId)
+    public LaunchOutcome OpenItem(string requestId, string projectId, string itemId, Func<bool>? stillAuthorized = null)
     {
         Lazy<LaunchOutcome> operation;
         lock (_gate)
@@ -140,7 +146,7 @@ public sealed class LaunchService
                 operation = cached.Outcome;
             else
             {
-                operation = new Lazy<LaunchOutcome>(() => ResolveAndLaunch(projectId, itemId),
+                operation = new Lazy<LaunchOutcome>(() => ResolveAndLaunch(projectId, itemId, stillAuthorized),
                     LazyThreadSafetyMode.ExecutionAndPublication);
                 _recent[requestId] = (operation, DateTime.UtcNow);
                 if (_recent.Count > 256) CleanupDedup();
@@ -150,7 +156,7 @@ public sealed class LaunchService
         return operation.Value;
     }
 
-    private LaunchOutcome ResolveAndLaunch(string projectId, string itemId)
+    private LaunchOutcome ResolveAndLaunch(string projectId, string itemId, Func<bool>? stillAuthorized)
     {
         if (_store.LoadError is { } errorMessage) return LaunchOutcome.Fail("IO_ERROR", errorMessage);
         var state = _store.Current;
@@ -159,15 +165,24 @@ public sealed class LaunchService
         var item = project.Items.FirstOrDefault(i => i.Id == itemId);
         if (item is null) return LaunchOutcome.Fail("PATH_NOT_FOUND", "未找到对应入口，可能已被删除。");
 
-        var invalid = item.Kind == "url" ? WebsiteService.IsUrl(item.Path) ? null : "网址无效。" : PathRules.Validate(item.Path);
+        var path = item.Path;
+        var kind = item.Kind;
+        var invalid = kind == "url" ? WebsiteService.IsUrl(path) ? null : "网址无效。" : PathRules.Validate(path);
         if (invalid is not null) return LaunchOutcome.Fail("INVALID_REQUEST", invalid);
 
-        if (item.Kind != "url" && !ProbeWithTimeout(item.Path))
+        if (kind != "url" && !ProbeWithTimeout(path))
             return LaunchOutcome.Fail("PATH_NOT_FOUND", "文件夹或文件已移动、不可达，请重新设置路径。");
 
-        var error = _shell.TryLaunch(item.Path);
+        bool Authorized()
+        {
+            var latest = _store.Current.Projects.FirstOrDefault(p => p.Id == projectId)?.Items.FirstOrDefault(i => i.Id == itemId);
+            return latest is not null && latest.Path == path && latest.Kind == kind && stillAuthorized?.Invoke() != false;
+        }
+        if (!Authorized())
+            return LaunchOutcome.Fail("CANCELLED", "入口或快捷键已变更，请重新操作。");
+        var error = _shell.TryLaunch(path, Authorized);
         if (error is not null) return LaunchOutcome.Fail("ACCESS_DENIED", error);
-        Log.Info($"shell.openItem 启动 project={projectId} item={itemId} path={item.Path}");
+        Log.Info($"shell.openItem 启动 project={projectId} item={itemId} path={path}");
         return LaunchOutcome.Ok();
     }
 

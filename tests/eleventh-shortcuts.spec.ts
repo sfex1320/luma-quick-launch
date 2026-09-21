@@ -50,7 +50,7 @@ test('URL drops at root and into a collection preserve inspected identity, icon,
 
 test('software hover opens a complete configured recent list and launches by IDs', async ({ page }) => {
   await host(page); await page.goto('/?view=dock&mode=native'); await expect(page.locator('.dock')).toBeVisible();
-  await page.getByRole('button', { name: '展开 创作 堆叠' }).click();
+  await page.getByRole('button', { name: '打开 创作 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await page.locator('.group-entry-row .split-folder').filter({ hasText: 'Photoshop' }).hover();
   await page.getByRole('button', { name: '查看 Photoshop 最近项目' }).click();
   await expect(page.getByLabel('创作 组内入口')).toBeVisible();
@@ -67,7 +67,7 @@ test('software hover opens a complete configured recent list and launches by IDs
 });
 
 test('long-pressing software enters recent items without dismissing the parent group', async ({ page }) => {
-  await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '展开 创作 堆叠' }).click();
+  await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '打开 创作 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const photoshop = page.locator('.group-entry-row .stack-item[data-item-id="ps"]'), box = await photoshop.boundingBox();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2); await page.mouse.down(); await page.waitForTimeout(360); await page.mouse.up();
   await expect(page.getByLabel('创作 组内入口')).toBeVisible();
@@ -77,7 +77,7 @@ test('long-pressing software enters recent items without dismissing the parent g
 
 test('edit X removes only a reference and extracting a group member preserves the source path', async ({ page }) => {
   await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '整理图标' }).click();
-  await page.getByRole('button', { name: '展开 创作 堆叠' }).click();
+  await page.getByRole('button', { name: '打开 创作 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await page.getByRole('button', { name: '将 Photoshop 移到主面板' }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__state().projects.find((p: any) => p.items.some((i: any) => i.id === 'ps')).items[0].path)).toBe('C:\\Adobe\\Photoshop.exe');
   await page.getByRole('button', { name: '移除快捷项 资料' }).click();
@@ -118,25 +118,22 @@ test('right drag pans without a context menu while a stationary right click keep
 test('a group entry can be dragged out and then dragged into another group without changing its reference', async ({ page }) => {
   const grouped = structuredClone(seed); grouped.projects[1].items.push({ id: 'doc2', name: '文档二', path: 'C:\\Docs2', kind: 'folder' });
   await host(page, grouped); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '整理图标' }).click();
-  await page.getByRole('button', { name: '展开 创作 堆叠' }).click();
+  await page.getByRole('button', { name: '打开 创作 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const source = page.locator('.group-entry-row .stack-item[data-item-id="ps"]');
   await source.dragTo(page.locator('.dock-launchers'));
   await expect.poll(() => page.evaluate(() => (window as any).__state().projects.some((p: any) => p.items.length === 1 && p.items[0].id === 'ps'))).toBe(true);
-  await page.getByRole('button', { name: '展开 资料 堆叠' }).click();
+  await page.getByRole('button', { name: '打开 资料 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const detached = page.locator('.dock-slot').filter({ hasText: 'Photoshop' }).locator('.dock-project');
   await detached.dragTo(page.getByLabel('资料 组内入口'));
   await expect.poll(() => page.evaluate(() => (window as any).__state().projects.find((p: any) => p.id === 'docs').items.some((i: any) => i.id === 'ps'))).toBe(true);
   expect(await page.evaluate(() => (window as any).__state().projects.find((p: any) => p.id === 'docs').items.find((i: any) => i.id === 'ps').path)).toBe('C:\\Adobe\\Photoshop.exe');
 });
 
-test('directory vertical right-drag suppresses context but stationary right-click opens it', async ({ page }) => {
-  await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '展开 资料 堆叠' }).click();
+test('directory right-drag no longer pans and preserves the context menu', async ({ page }) => {
+  await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '打开 资料 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const list = page.locator('.directory-items'); await expect(list).toBeVisible(); const box = await list.boundingBox();
   await page.mouse.move(box!.x + 40, box!.y + box!.height - 8); await page.mouse.down({ button: 'right' });
   await page.mouse.move(box!.x + 40, box!.y + 8, { steps: 4 }); await page.mouse.up({ button: 'right' });
-  await list.dispatchEvent('contextmenu', { clientX: box!.x + 40, clientY: box!.y + 8, button: 2 });
-  await expect(page.getByRole('menu', { name: '快捷操作' })).toHaveCount(0);
-  await page.waitForTimeout(550);
-  await page.locator('.directory-row').first().click({ button: 'right' });
+  expect(await list.evaluate(node => node.scrollTop)).toBe(0);
   await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible();
 });

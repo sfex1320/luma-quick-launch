@@ -75,7 +75,7 @@ test('single-folder long press lists actual immediate contents; navigation and b
 test('code project detection is read-only; Run tests sends only saved identities and its task token', async ({ page }) => {
   await attachHost(page);
   await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; (window as any).__delayTestRun = true; });
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const run = page.getByRole('button', { name: '测试软件', exact: true });
   await expect(run).toBeVisible();
   await expect(run).toHaveAttribute('title', '测试软件 · npm test');
@@ -99,7 +99,7 @@ test('run tests participates in slide release, outside release cancels and folde
   await expect(run).toHaveClass(/selected/);
   await page.mouse.move(10, 650); await page.mouse.up();
   expect(await calls(page, 'project.runTest')).toHaveLength(0);
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
   await expect(page.getByText('初稿.pdf', { exact: true })).toBeVisible();
@@ -114,7 +114,7 @@ test('run tests participates in slide release, outside release cancels and folde
 test('failed test launch keeps directory contents and allows retry', async ({ page }) => {
   await attachHost(page);
   await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; (window as any).__delayTestRun = true; });
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await page.getByRole('button', { name: '测试软件', exact: true }).click();
   await page.evaluate(() => (window as any).__finishTestRun(true));
   await expect(page.getByRole('alert')).toBeVisible();
@@ -125,7 +125,7 @@ test('failed test launch keeps directory contents and allows retry', async ({ pa
 test('a pending test response cannot close a subsequently browsed child directory', async ({ page }) => {
   await attachHost(page);
   await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm test' }; (window as any).__delayTestRun = true; });
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await page.getByRole('button', { name: '测试软件', exact: true }).click();
   await page.locator('.stack-item[data-item-id="token-design"]').hover();
   await page.getByRole('button', { name: '浏览 设计稿 子目录', exact: true }).click();
@@ -144,7 +144,7 @@ for (const viewport of [{ width: 340, height: 500 }, { width: 360, height: 640 }
   const listing = { ...root, truncated: true, entries: Array.from({ length: 200 }, (_, i) => ({ id: `entry-${i}`, name: `文档 ${i}.pdf`, kind: 'file' as const })) };
   await attachHost(page, seed, listing);
   await page.evaluate(() => { (window as any).__testTask = { id: 'test-root', label: '测试软件', command: 'npm run test' }; });
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const run = page.getByRole('button', { name: '测试软件', exact: true });
   await expect(run).toBeVisible();
   const bounds = await page.locator('.stack-panel').boundingBox();
@@ -177,7 +177,7 @@ test('long-press slide from the folder icon opens the released file once, never 
 
 test('pressing a directory member delays launch until release and a long press released outside cancels', async ({ page }) => {
   await attachHost(page);
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const file = page.locator('[data-item-id="token-document"]');
   await expect(file).toBeVisible();
   await hold(page, file);
@@ -188,7 +188,7 @@ test('pressing a directory member delays launch until release and a long press r
   await page.mouse.up();
   await expect(page.locator('.stack-panel')).toHaveCount(0);
   expect(await calls(page, 'folder.open')).toHaveLength(0);
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(file).toBeVisible();
   await hold(page, file);
   await page.waitForTimeout(340);
@@ -228,7 +228,7 @@ test('mixed groups include the first entry, browse folder members and launch a s
   const mixed = structuredClone(initial);
   mixed.projects = [{ ...mixed.projects[0], items: [...mixed.projects[0].items, { ...mixed.projects[1].items[0], id: 'editor-member' }] }];
   await attachHost(page, mixed);
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(page.locator('.group-entry-row')).toHaveCount(2);
   await expect(page.locator('.group-entry-row').first().locator('.stack-item')).toHaveAttribute('data-item-id', 'root');
   await page.locator('.group-column .stack-item[data-item-id="root"]').hover();
@@ -270,10 +270,10 @@ for (const fail of [false, true]) {
   test(`a delayed folder.open ${fail ? 'failure' : 'success'} cannot change a subsequently opened menu`, async ({ page }) => {
     await attachHost(page);
     await page.evaluate(() => { (window as any).__delayFolderOpen = true; });
-    await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+    await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
     await page.locator('[data-item-id="token-document"]').click();
     await expect.poll(() => calls(page, 'folder.open')).toHaveLength(1);
-    await page.getByRole('button', { name: '展开 编辑器 堆叠', exact: true }).click();
+    await page.getByRole('button', { name: '打开 编辑器 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
     const currentMenu = page.getByRole('region', { name: '编辑器 文件夹堆叠', exact: true });
     await expect(currentMenu).toBeVisible();
     await page.evaluate(async fail => {
@@ -326,7 +326,7 @@ for (const [width, expectedWidth] of [[320, 376], [640, 640], [1000, 1000]]) tes
     return { right: dock.right - tools.right, tools: tools.width, dock: dock.width };
   });
   expect(alignment.right).toBeCloseTo(17, 0); expect(alignment.tools).toBe(126); expect(alignment.dock).toBe(expectedWidth);
-  await page.getByRole('button', { name: '展开 电梯贴 堆叠', exact: true }).click();
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(page.locator('.directory-row')).toHaveCount(3);
   const boxes = await page.locator('.directory-row').evaluateAll(elements => elements.map(el => { const b = el.getBoundingClientRect(); return { width:b.width,height:b.height }; }));
   expect(boxes).toEqual(Array(3).fill({width:88,height:94}));
@@ -391,6 +391,9 @@ test('removing a top-level project uses one FLIP width animation and bounded nat
   expect(syncs.some((call: any) => call.params.rects.some((rect: any) => rect.width >= 376))).toBe(true);
   await page.getByRole('button', { name: '完成整理', exact: true }).click();
   await projectButton(page, '画图').click();
+  await expect(page.getByLabel('画图 组内入口')).toBeVisible();
+  expect(await calls(page, 'shell.openItem')).toHaveLength(0);
+  await page.locator('.group-column .stack-item').first().click();
   await expect.poll(() => calls(page, 'shell.openItem')).toHaveLength(1);
 });
 
@@ -428,13 +431,14 @@ test('leaving Open current directory before release cancels, and keyboard activa
   const action=page.getByRole('button',{name:'打开当前目录',exact:true});await expect(action).toBeVisible();
   const target=await center(action);await page.mouse.move(target.x,target.y);await expect(action).toHaveClass(/selected/);
   await page.mouse.move(10,650);await page.mouse.up();expect(await calls(page,'folder.open')).toHaveLength(0);
-  await page.getByRole('button',{name:'展开 电梯贴 堆叠',exact:true}).click();await action.focus();await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');await action.focus();await page.keyboard.press('Enter');
   await expect.poll(()=>calls(page,'folder.open')).toHaveLength(1);
 });
 
 test('an idle submenu permits native retraction after leaving, while a held gesture keeps it open', async ({ page }) => {
   await attachHost(page);
-  await page.getByRole('button',{name:'展开 电梯贴 堆叠',exact:true}).click();
+  await projectButton(page, '电梯贴').hover();
+  await page.getByRole('button', { name: '浏览 电梯贴 子目录', exact: true }).click();
   await expect(page.locator('.directory-row')).toHaveCount(3);
   const interactive=()=>page.evaluate(()=>(window as any).__calls.filter((c:any)=>c.method==='window.sync').at(-1).params.interacting);
   await expect.poll(interactive).toBe(true);
@@ -451,7 +455,7 @@ test('large directories scroll inside fixed tiles while Open current directory r
   const seed=structuredClone(initial);seed.preferences.height=160;
   const listing={...root,entries:Array.from({length:60},(_,i)=>({id:`entry-${i}`,name:`文档 ${i}.pdf`,kind:'file' as const}))};
   await attachHost(page,seed,listing);
-  await page.getByRole('button',{name:'展开 电梯贴 堆叠',exact:true}).click();await expect(page.locator('.directory-row')).toHaveCount(60);
+  await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');await expect(page.locator('.directory-row')).toHaveCount(60);
   const grid=await page.locator('.directory-items').evaluate(el=>({scroll:el.scrollHeight>el.clientHeight,overflow:el.scrollWidth>el.clientWidth}));
   expect(grid).toEqual({scroll:true,overflow:false});
   const footer=await page.getByRole('button',{name:'打开当前目录',exact:true}).boundingBox();

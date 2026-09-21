@@ -12,7 +12,7 @@ namespace Luma.Host.Windows;
 /// <summary>
 /// 顶边浮岛承载窗口：默认整窗透明且完全穿透；前端 window.sync 上报真实面板矩形后，
 /// 通过 SetWindowRgn 只在面板区域与连接通道内接收鼠标，其余区域点击落到原窗口。
-/// WS_EX_NOACTIVATE + ShowActivated=false 保证展示不抢正在输入的应用焦点。
+/// ShowActivated=false 与 SWP_NOACTIVATE 保证展示不抢焦点；用户点击后允许面板键盘操作。
 /// </summary>
 public sealed class DockWindow : Window, IHostClient
 {
@@ -37,6 +37,7 @@ public sealed class DockWindow : Window, IHostClient
     public string ClientId => ClientIdValue;
     public IntPtr WindowHandle => _hwnd;
     public bool IsExpanded => _expanded;
+    public bool HasShortcutFocus => _visibleToUser && _expanded && Win32.GetForegroundWindow() == _hwnd;
     public bool IsInteracting { get; private set; }
     public IReadOnlyList<Rect> CurrentRects => _rectsDip;
     public bool HasSynced { get; private set; }
@@ -53,7 +54,7 @@ public sealed class DockWindow : Window, IHostClient
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         ShowActivated = false;
-        Focusable = false;
+        Focusable = true;
         Topmost = true;
         // 整个承载区透明（WPF 不绘制任何像素，视觉全部由 WebView2 透明渲染）；命中由 SetWindowRgn 控制。
         Background = null;
@@ -97,7 +98,7 @@ public sealed class DockWindow : Window, IHostClient
             target.BackgroundColor = System.Windows.Media.Colors.Transparent;
 
         var exStyle = Win32.GetWindowLong(_hwnd, Win32.GWL_EXSTYLE);
-        Win32.SetWindowLong(_hwnd, Win32.GWL_EXSTYLE, exStyle | Win32.WS_EX_NOACTIVATE | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_TOPMOST);
+        Win32.SetWindowLong(_hwnd, Win32.GWL_EXSTYLE, (exStyle & ~Win32.WS_EX_NOACTIVATE) | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_TOPMOST);
 
         // 玻璃面铺满客户区，配合 WebView2 透明背景实现每像素透明；窗口默认区域为空（完全穿透），等前端 sync。
         var margins = Win32.Margins.Sheet;
@@ -204,6 +205,14 @@ public sealed class DockWindow : Window, IHostClient
     }
 
     void IHostClient.Detach() => Log.Info("浮岛桥接客户端分离");
+
+    public void PostShortcutActivation(string id, long serial)
+    {
+        // Called only after the current expanded layout acknowledgement, after deferred state was flushed.
+        if (_messages.IsClosed || !_visibleToUser || !_expanded) return;
+        ((IHostClient)this).PostJson(System.Text.Json.JsonSerializer.Serialize(new
+        { protocol = 1, type = "event", @event = "shortcut.activated", data = new { id, serial } }, ContractsJson.Options));
+    }
 
     #endregion
 
@@ -387,7 +396,7 @@ internal sealed class DockMessageQueue
                 method = name.GetString();
         }
         catch (System.Text.Json.JsonException) { /* Router owns validation and error responses. */ }
-        if (method is "folder.list" or "folder.open" or "folder.getThumbnail" or "folder.getPath" or "folder.createFolder" or "folder.rename" or "folder.move" or "shell.getIcon" or "shell.openItem" or "shell.getRecent" or "shell.openRecent" or "website.inspect" or "search.open" or "project.detectTest" or "project.runTest")
+        if (method is "shortcut.execute" or "folder.list" or "folder.open" or "folder.getThumbnail" or "folder.getPath" or "folder.createFolder" or "folder.rename" or "folder.move" or "shell.getIcon" or "shell.openItem" or "shell.getRecent" or "shell.openRecent" or "website.inspect" or "search.open" or "project.detectTest" or "project.runTest")
         {
             // Never hold the layout queue across slow directory, icon or window-reuse IO.
             // The router still validates the request; each service bounds its workers.

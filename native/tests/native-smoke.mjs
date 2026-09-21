@@ -96,7 +96,7 @@ try {
   await expect.poll(async()=>JSON.parse(await readFile(path.join(data,'state.json'),'utf8')).preferences.width).toBe(800);
   await expect.poll(()=>dock.locator('.dock').evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(800);
   check('真实配置落盘并同步浮岛宽度');
-  await dock.getByRole('button',{name:'展开 原生验证项目 堆叠',exact:true}).click();
+  await dock.locator('.dock-project').filter({hasText:'原生验证项目'}).press('ArrowDown');
   await expect(dock.getByRole('region',{name:'原生验证项目 文件夹堆叠'})).toBeVisible();
   await dock.locator('[data-item-id="assets"]').click();
   await expect(dock.getByRole('status')).toContainText('已请求打开');

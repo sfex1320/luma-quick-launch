@@ -6,7 +6,7 @@ import { FolderEntryIcon } from './FolderEntryIcon';
 import { SplitFolderTile } from './SplitFolderTile';
 import { clearFolderThumbnails } from './folder-thumbnail-cache';
 import './folder-browser.css';
-import { useRightPan } from './useRightPan';
+import { useBlankPan } from './useBlankPan';
 import { DirectoryActionButtons, DirectoryActions, useDirectoryActions } from './DirectoryActions';
 
 interface Props {
@@ -81,7 +81,7 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
       .then(result => { if (alive) setTestTask(result.task); }).catch(reason => { if (alive) setTestError((reason as Error).message); });
     return () => { alive = false; };
   }, [listing, projectId, item.id, item.launch]);
-  const pan = useRightPan('y');
+  const pan = useBlankPan();
   return <div className="folder-browser folder-column" data-folder-level={index} aria-label={`${listing?.name ?? level.name} 目录层`}
     onContextMenu={event => { if (listing) actions.openContext(event, listing); }}>
     <div className="folder-browser-path">

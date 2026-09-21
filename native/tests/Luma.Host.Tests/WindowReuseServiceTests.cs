@@ -103,6 +103,41 @@ public class WindowReuseServiceTests
         Assert.Equal(0, os.Launches);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(123)]
+    public void AuthorizationRevokedDuringFindPreventsLaunchAndActivation(int found)
+    {
+        var authorized = true;
+        var os = new Platform { Window = found, OnFind = () => authorized = false };
+        Assert.NotNull(new WindowReuseService(os).Open(@"C:\App.exe", stillAuthorized: () => authorized));
+        Assert.Equal(0, os.Launches);
+        Assert.Equal(0, os.Activations);
+    }
+
+    [Fact]
+    public async Task StaQueuedRequestRevokedBeforeWorkerRunsCannotLaunch()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var blocked = new Platform { OnFind = () => { entered.Set(); release.Wait(TimeSpan.FromSeconds(2)); } };
+        var blockedShell = new RealShellExecutor(blocked);
+        var first = Task.Run(() => blockedShell.TryLaunch(@"C:\Busy.exe"));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(1)));
+        var os = new Platform(); var shell = new RealShellExecutor(os); var authorized = true; string? outcome = null;
+        var second = new Thread(() => outcome = shell.TryLaunch(@"C:\App.exe", () => Volatile.Read(ref authorized))) { IsBackground = true };
+        try
+        {
+            second.Start();
+            Assert.True(SpinWait.SpinUntil(() => (second.ThreadState & ThreadState.WaitSleepJoin) != 0, TimeSpan.FromSeconds(1)));
+            Volatile.Write(ref authorized, false);
+        }
+        finally { release.Set(); second.Join(3000); await first; }
+        Assert.NotNull(outcome);
+        Assert.Equal(0, os.Launches);
+        Assert.Equal(0, os.Activations);
+    }
+
     [Fact]
     public async Task ConcurrentRequestsForOneTargetLaunchOnlyOnce()
     {

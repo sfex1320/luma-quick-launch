@@ -1,13 +1,13 @@
 import { useState, type PointerEvent } from 'react';
-import { FolderOpen, X, ArrowUpRight, ChevronDown } from 'lucide-react';
+import { FolderOpen, X, ArrowUpRight } from 'lucide-react';
 import type { LaunchItem, Project } from '../contracts';
 import { ItemIcon } from './ItemIcon';
 import { SplitFolderTile } from './SplitFolderTile';
-import { useRightPan } from './useRightPan';
+import { useBlankPan } from './useBlankPan';
 import { ContextMenu, type MenuAction } from './ContextMenu';
 
 export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, ...gesture }: { project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
-  const pan = useRightPan('y');
+  const pan = useBlankPan();
   const [context, setContext] = useState<{ x: number; y: number; actions: MenuAction[] } | null>(null);
   return <div className="folder-column group-column" data-drop-project={project.id} aria-label={`${project.name} 组内入口`} onDragOver={event => { if (editing && event.dataTransfer.types.includes('application/x-luma-entry')) { event.preventDefault(); event.stopPropagation(); } }} onDrop={event => { if (!editing || !event.dataTransfer.types.includes('application/x-luma-entry')) return; event.preventDefault(); event.stopPropagation(); try { const data = JSON.parse(event.dataTransfer.getData('application/x-luma-entry')); onMoveItem?.(data.projectId, data.itemId, project.id); } catch { /* Ignore malformed external drag payloads. */ } }}>
     <div className="stack-items launch-grid" {...pan}>
@@ -24,7 +24,6 @@ export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, 
           </button>
         </SplitFolderTile>
         {editing && <><button className="shortcut-remove" aria-label={`移除快捷项 ${item.name}`} onClick={() => onRemove?.(item.id)}><X size={12}/></button><button className="shortcut-extract" aria-label={`将 ${item.name} 移到主面板`} onClick={() => onExtract?.(item.id)}><ArrowUpRight size={13}/></button></>}
-        {editing && ['folder','app'].includes(item.kind) && <button className="shortcut-enter" aria-label={`进入 ${item.name} 子菜单`} onClick={() => onBrowse(item)}><ChevronDown size={12}/></button>}
       </div>)}
     </div>
     <footer><button data-item-id={project.items[0].id} data-project-id={project.id} className="text-button directory-open-current" {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(project.items[0]); }}><FolderOpen size={14}/>打开默认入口</button>{project.items.length > 1 && <button className="text-button directory-open-current" onClick={onUngroup}>拆成独立图标</button>}</footer>

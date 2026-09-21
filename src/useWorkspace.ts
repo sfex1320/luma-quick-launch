@@ -23,7 +23,7 @@ export function useWorkspace() {
     const refresh = () => void request('app.getState', {}).then(accept).catch(reason => alive.current && setError(reason.message));
     const unsubscribe = subscribeHost(event => {
       if (event.event === 'app.stateChanged') accept(event.data);
-      else { const key = `${event.data.visible}/${event.data.visibilityId ?? ''}`; if (key === visibility) return; visibility = key; if (event.data.visible) refresh(); }
+      else if (event.event === 'window.visibility') { const key = `${event.data.visible}/${event.data.visibilityId ?? ''}`; if (key === visibility) return; visibility = key; if (event.data.visible) refresh(); }
     });
     const focus = () => { if (!document.hidden) refresh(); };
     window.addEventListener('focus', focus); document.addEventListener('visibilitychange', focus); refresh();
