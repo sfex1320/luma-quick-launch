@@ -33,3 +33,5 @@ After Effects、Premiere、Blender、Figma 目前返回“该软件暂未接入�
 结果：32/32 通过，0 跳过。覆盖应用身份到 Adobe MRU 的映射、未知软件不读取共享历史、256 项上限、排序去重、6–10 条限制、路径与令牌复核、超时和取消不产生迟到打开。
 
 这不是 Adobe 云文档历史，也不声称覆盖应用内部未写入 MediaBrowser MRU 的记录。本轮没有启动 Photoshop、Illustrator、InDesign 或第二个 Luma 实例。
+
+后续审查补充：生产读取已改为RegEnumKeyEx逐项最多256次，以及RegQueryValueEx先校验REG_SZ类型、最大8194字节和UTF-16有效性；不是先GetSubKeyNames/GetValue全量分配再截断。版本资源核对公司、产品和原始文件名，仅用于合理软件归属，不宣称签名级信任。临时GUID注册表与身份等专项最终64/64通过，无编译警告。统一交付窗口另对实际EXE进行原生验收，从保存的Photoshop快捷方式读取真实8项最近文件并显示完整位置，未打开PSD；最终证据见第十二轮修复与交付报告。
