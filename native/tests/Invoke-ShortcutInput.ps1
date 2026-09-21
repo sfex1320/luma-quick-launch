@@ -14,7 +14,8 @@ if(-not $window){throw 'Target HWND not owned by this process'}
 switch($payload.op){
  'focus' {[LumaShortcutInput]::Focus($window.hwnd,[uint32]$p.Id)}
  'click' {[LumaShortcutInput]::Click($window.hwnd,[uint32]$p.Id,[int]$payload.x,[int]$payload.y)}
- 'keys' {if([int]$payload.repeats -lt 1 -or [int]$payload.repeats -gt 10){throw 'Invalid repeat count'};[LumaShortcutInput]::Chord($window.hwnd,[uint32]$p.Id,[ushort]$payload.key,[uint32]$payload.modifiers,[int]$payload.repeats)}
+ 'keys' {if([int]$payload.repeats -lt 1 -or [int]$payload.repeats -gt 10){throw 'Invalid repeat count'};[LumaShortcutInput]::Chord($window.hwnd,[uint32]$p.Id,[uint16]$payload.key,[uint32]$payload.modifiers,[int]$payload.repeats)}
+ 'fixtureKeys' {if([IO.Path]::GetFileName($p.Path) -ne 'ShortcutInputProbe.exe' -or -not $window.title.StartsWith('Luma shortcut fixture')){throw 'Only the external input fixture may be refocused'};if([int]$payload.repeats -lt 1 -or [int]$payload.repeats -gt 10){throw 'Invalid repeat count'};[LumaShortcutInput]::Focus($window.hwnd,[uint32]$p.Id);[LumaShortcutInput]::Chord($window.hwnd,[uint32]$p.Id,[uint16]$payload.key,[uint32]$payload.modifiers,[int]$payload.repeats)}
  default {throw 'Unsupported input operation'}
 }
 @{ok=$true;foregroundPid=[LumaShortcutInput]::ForegroundPid()}|ConvertTo-Json -Compress
