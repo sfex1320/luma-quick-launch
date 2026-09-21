@@ -121,7 +121,7 @@ for ($depth=0; $depth -lt 8; $depth++) {
 }
 $rows=@($all | Where-Object { $ids.Contains([int]$_.ProcessId) } | ForEach-Object {
   $live=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
-  if ($live) { @{ pid=[int]$_.ProcessId; name=$_.Name; workingSetBytes=[long]$live.WorkingSet64; privateBytes=[long]$live.PrivateMemorySize64; cpuSeconds=$live.CPU } }
+  if ($live) { [pscustomobject]@{ pid=[int]$_.ProcessId; name=$_.Name; workingSetBytes=[long]$live.WorkingSet64; privateBytes=[long]$live.PrivateMemorySize64; cpuSeconds=$live.CPU } }
 })
 @{ at=[DateTime]::UtcNow.ToString('o'); processes=$rows; workingSetBytes=($rows | Measure-Object workingSetBytes -Sum).Sum; dwm=$null } | ConvertTo-Json -Depth 5 -Compress`));
 };
