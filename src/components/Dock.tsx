@@ -306,7 +306,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
       </nav>
       {editing && <div data-native-hit className="dock-edit-hint">把图标拖到另一个图标上成组 · 完成整理后恢复快捷启动</div>}
       {dragging && <div data-native-hit className="dock-drop-hint">松手添加快捷项 · 拖到已有图标可加入堆叠</div>}
-      {active && <section aria-label={`${active.name} 文件夹堆叠`} data-native-hit className={`stack-panel glass material-${p.material}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 220}px)`, maxHeight: `calc(100vh - ${layout.height + 40}px)` } as CSSProperties}>
+      {active && <section aria-label={`${active.name} 文件夹堆叠`} data-native-hit className={`stack-panel glass material-${p.material}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 40}px)`, maxHeight: `calc(100vh - ${layout.height + 40}px)` } as CSSProperties}>
         <header><div className="stack-heading"><span className={`project-dot dot-${active.color}`}/><strong>{active.name}</strong><span>{active.items.length} 个入口</span></div><div className="stack-header-actions">{folderHeader?.back && browseItem?.kind === 'folder' && <button className="icon-button" aria-label="返回上一层" onClick={folderHeader.back}><ArrowLeft size={16}/></button>}{folderHeader && browseItem?.kind === 'folder' && <button className="icon-button" aria-label="刷新目录" disabled={folderHeader.loading || folderHeader.disabled} onClick={folderHeader.refresh}><RefreshCw size={15}/></button>}<button className="icon-button" aria-label="关闭堆叠" onClick={close}><X size={16}/></button></div></header>
         {menuError && <p className="folder-browser-message" role="alert">{menuError}</p>}
         <div className="stack-body-cascade">

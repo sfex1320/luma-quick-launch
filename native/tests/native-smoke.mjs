@@ -38,6 +38,13 @@ try {
   await expect.poll(()=>pages().filter(p=>p.url().includes('luma.local')).length).toBe(2);
   const dock=pages().find(p=>p.url().includes('view=dock'));
   const settings=pages().find(p=>!p.url().includes('view=dock'));
+  const prepareGesture = async () => {
+    // R14 successful launch retracts the rail while remembering the menu.
+    if (await dock.locator('.dock-closing').count()) await expect(dock.locator('.dock-wrap')).toHaveCount(0);
+    await activate('--show-dock'); await expect(dock.locator('.dock')).toBeVisible();
+    await expect.poll(()=>dock.locator('.dock-wrap').evaluate(el=>el.getAnimations().every(a=>a.playState==='finished'))).toBe(true);
+    const close=dock.getByRole('button',{name:'关闭堆叠',exact:true}); if(await close.count()) await close.click();
+  };
   dock.setDefaultTimeout(10000);settings.setDefaultTimeout(10000);
   await expect(settings.getByRole('heading',{name:'快捷项与堆叠',exact:true})).toBeVisible();
   await new Promise(r=>setTimeout(r,2200)); // Let preload settle: no initial animation can accidentally acknowledge reveal.
@@ -63,6 +70,7 @@ try {
     }
   }
   check(`${evidence.activationMode}：冷启动与双屏各三次反复唤出、定位、收起`);
+  if (!process.argv.includes('--hotspot-only')) {
   await activate('--show-dock');
   await expect(dock.getByRole('navigation',{name:'快捷启动面板'})).toBeVisible();
   await expect(dock.getByRole('button',{name:'打开 原生验证项目 主目录，长按展开堆叠',exact:true})).toBeVisible();
@@ -116,6 +124,7 @@ try {
       + (log.match(/Shell 复用窗口 hwnd=\d+ foreground=False/g)??[]).length;
   };
   const before=await launches();
+  await prepareGesture();
   const origin=await dock.getByRole('button',{name:'打开 原生验证项目 主目录，长按展开堆叠',exact:true}).boundingBox();
   await dock.mouse.move(origin.x+origin.width/2,origin.y+origin.height/2);
   await dock.mouse.down();
@@ -136,6 +145,7 @@ try {
   expect(Number(execFileSync('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(countShellWindows,'utf16le').toString('base64')],
     {encoding:'utf8',windowsHide:true,env:{...process.env,LUMA_SMOKE_FOLDER:path.join(data,'项目 主目录','素材')}}).trim())).toBe(1);
   check('真实 WebView 长按滑选松手只处理一次；已有目录不重复创建，前置受限有反馈');
+  await prepareGesture();
   await dock.mouse.move(origin.x+origin.width/2,origin.y+origin.height/2);
   await dock.mouse.down();
   await expect(dock.locator('[data-item-id="assets"]')).toBeVisible();
@@ -233,6 +243,8 @@ try {
   await settings.getByRole('button',{name:'独立预览',exact:true}).click();
   await expect(dock.getByRole('navigation',{name:'快捷启动面板'})).toBeVisible();
   check('管理窗独立预览唤出真实浮岛');
+  }
+  evidence.scope=process.argv.includes('--hotspot-only')?'hotspots':'full';
   evidence.result='passed';
 } catch(error) { evidence.result='failed'; evidence.error=String(error.stack??error); throw error; }
 finally {

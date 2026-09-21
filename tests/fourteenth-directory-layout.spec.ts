@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { defaults } from '../src/data';
 
-async function setup(page: Page) {
-  await page.addInitScript(defaults => {
+async function setup(page: Page, options: { height?: number; childCount?: number } = {}) {
+  await page.addInitScript(({ preferences, childCount }) => {
     const host = window as any, listeners: Array<(event: any) => void> = [];
     host.__calls = []; host.__generation = 0;
     host.chrome ||= {};
@@ -10,20 +10,20 @@ async function setup(page: Page) {
       host.__calls.push(req);
       const respond = (result: unknown, error?: string) => listeners.forEach(callback => callback({ data: { protocol: 1, type: 'response', id: req.id, ok: !error, ...(error ? { error: { code: 'INVALID_REQUEST', message: error } } : { result }) } }));
       if (req.method === 'app.getState') {
-        setTimeout(() => respond({ schemaVersion: 1, revision: 1, preferences: defaults, projects: [{ id: 'project', name: '目录布局', description: '', color: 'mint', pinned: true, items: [{ id: 'root', name: '目录布局', path: 'C:\\Fixture', kind: 'folder' }] }] }), 2);
+        setTimeout(() => respond({ schemaVersion: 1, revision: 1, preferences, projects: [{ id: 'project', name: '目录布局', description: '', color: 'mint', pinned: true, items: [{ id: 'root', name: '目录布局', path: 'C:\\Fixture', kind: 'folder' }] }] }), 2);
         setTimeout(() => listeners.forEach(callback => callback({ data: { protocol: 1, type: 'event', event: 'window.visibility', data: { visible: true, visibilityId: 1 } } })), 80); return;
       }
       if (req.method === 'folder.list') {
         const child = !!req.params.folderId, childId = host.__generation ? `entry-0-r${host.__generation}` : 'entry-0';
         const finish = () => {
           if (child && (req.params.folderId !== childId || host.__failChild)) { respond(null, '目录令牌失效'); return; }
-          respond({ folderId: child ? `child-token-${host.__generation}` : `root-token-${host.__generation}`, name: child ? '子目录' : '目录布局', parentId: child ? `root-token-${host.__generation}` : null, truncated: false, entries: child ? [{ id: 'nested-file', name: '内部.txt', kind: 'file' }] : Array.from({ length: 17 }, (_, index) => ({ id: index === 0 ? childId : `entry-${index}`, name: index === 0 ? '子目录' : `文件${index}.txt`, kind: index === 0 ? 'folder' : 'file' })).filter(entry => !host.__childMissing || entry.kind !== 'folder') });
+          respond({ folderId: child ? `child-token-${host.__generation}` : `root-token-${host.__generation}`, name: child ? '子目录' : '目录布局', parentId: child ? `root-token-${host.__generation}` : null, truncated: false, entries: child ? Array.from({ length: childCount }, (_, index) => ({ id: index ? `nested-file-${index}` : 'nested-file', name: `内部${index}.txt`, kind: 'file' })) : Array.from({ length: 17 }, (_, index) => ({ id: index === 0 ? childId : `entry-${index}`, name: index === 0 ? '子目录' : `文件${index}.txt`, kind: index === 0 ? 'folder' : 'file' })).filter(entry => !host.__childMissing || entry.kind !== 'folder') });
         };
         if (child && host.__holdChild) host.__finishChild = finish; else setTimeout(finish, 5); return;
       }
       setTimeout(() => respond(req.method === 'window.sync' ? { applied: true } : req.method === 'project.detectTest' ? { task: { id: 'task', label: '打开项目软件', command: 'npm run dev' } } : req.method === 'shell.getIcon' || req.method === 'folder.getThumbnail' ? { dataUrl: null } : { accepted: true }), 2);
     } };
-  }, defaults);
+  }, { preferences: { ...defaults, ...(options.height ? { height: options.height } : {}) }, childCount: options.childCount ?? 1 });
   await page.goto('/?view=dock&mode=native');
   await expect(page.locator('.dock')).toBeVisible();
   await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
@@ -105,6 +105,29 @@ test('directory grid shows four fixed tiles per row and exactly two complete row
   expect(geometry.overflow).toBe(true); expect(geometry.horizontal).toBe(false);
   const positions = await page.locator('.directory-footer-actions>button').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().y));
   expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2);
+});
+
+test('scaled native-height viewport retains eight complete tiles in root and child columns', async ({ page }) => {
+  await page.setViewportSize({ width: 2030, height: 508 });
+  await setup(page, { height: 88, childCount: 17 });
+  const verify = async (level: number) => {
+    const column = page.locator(`[data-folder-level="${level}"]`);
+    const geometry = await column.locator('.directory-items').evaluate(grid => {
+      const frame = grid.getBoundingClientRect();
+      const visible = [...grid.querySelectorAll('.directory-row')].filter(row => { const rect = row.getBoundingClientRect(); return rect.top >= frame.top && rect.bottom <= frame.bottom; });
+      return { visible: visible.length, height: frame.height, overflow: grid.scrollHeight > grid.clientHeight };
+    });
+    expect(geometry.visible).toBe(8); expect(geometry.height).toBe(218); expect(geometry.overflow).toBe(true);
+    const footer = (await column.locator('.directory-footer').boundingBox())!;
+    expect(footer.y + footer.height).toBeLessThanOrEqual(508);
+  };
+  await verify(0);
+  await page.locator('.stack-item[data-item-id="entry-0"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '进入', exact: true }).click();
+  await expect(page.locator('[data-folder-level="1"] .directory-row')).toHaveCount(17);
+  await verify(0); await verify(1);
+  const panel = (await page.locator('.stack-panel').boundingBox())!;
+  expect(panel.y + panel.height).toBeLessThanOrEqual(508);
 });
 
 test('move arrow explains unprepared click, keyboard activation, and held release without disk requests', async ({ page }) => {
