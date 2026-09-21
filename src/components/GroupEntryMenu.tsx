@@ -1,4 +1,4 @@
-import { useState, type PointerEvent } from 'react';
+import { useState, type ReactNode, type PointerEvent } from 'react';
 import { FolderOpen, X, ArrowUpRight } from 'lucide-react';
 import type { LaunchItem, Project } from '../contracts';
 import { ItemIcon } from './ItemIcon';
@@ -6,7 +6,7 @@ import { SplitFolderTile } from './SplitFolderTile';
 import { useBlankPan } from './useBlankPan';
 import { ContextMenu, type MenuAction } from './ContextMenu';
 
-export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, ...gesture }: { project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
+export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
   const pan = useBlankPan();
   const [context, setContext] = useState<{ x: number; y: number; actions: MenuAction[] } | null>(null);
   return <div className="folder-column group-column" data-drop-project={project.id} aria-label={`${project.name} 组内入口`} onDragOver={event => { if (editing && event.dataTransfer.types.includes('application/x-luma-entry')) { event.preventDefault(); event.stopPropagation(); } }} onDrop={event => { if (!editing || !event.dataTransfer.types.includes('application/x-luma-entry')) return; event.preventDefault(); event.stopPropagation(); try { const data = JSON.parse(event.dataTransfer.getData('application/x-luma-entry')); onMoveItem?.(data.projectId, data.itemId, project.id); } catch { /* Ignore malformed external drag payloads. */ } }}>
@@ -23,6 +23,7 @@ export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, 
             <ItemIcon projectId={project.id} itemId={item.id} pathKey={item.path} kind={item.kind} color={project.color} size={38}/><span><strong>{item.name}</strong><small>{item.kind === 'folder' ? '文件夹' : item.kind === 'app' ? '软件' : item.kind === 'url' ? '网站' : '文件'}</small></span>
           </button>
         </SplitFolderTile>
+        {!editing && renderAccessory?.(item)}
         {editing && <><button className="shortcut-remove" aria-label={`移除快捷项 ${item.name}`} onClick={() => onRemove?.(item.id)}><X size={12}/></button><button className="shortcut-extract" aria-label={`将 ${item.name} 移到主面板`} onClick={() => onExtract?.(item.id)}><ArrowUpRight size={13}/></button></>}
       </div>)}
     </div>

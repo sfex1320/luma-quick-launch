@@ -1,4 +1,4 @@
-param([string]$Version = '0.3.0', [switch]$RequireSignature)
+param([string]$Version = '0.3.0', [switch]$RequireSignature, [switch]$DeferDesktopChecks)
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') { throw 'Invalid release version.' }
 $root = Split-Path $PSScriptRoot -Parent
@@ -73,6 +73,8 @@ try {
     if (@(Get-ChildItem -LiteralPath $extracted -Recurse -File).Count -ne $files.Count) { throw 'Archive file count mismatch.' }
 
     # Run the extracted executable, with isolated state, instead of a development host.
+    if (-not $DeferDesktopChecks) {
+    & (Join-Path $PSScriptRoot 'assert-delivery-window.ps1')
     $installedExe = Join-Path $root 'APP/Luma/Luma.exe'
     $running = @(Get-Process -Name Luma -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $installedExe })
     $previousTestExe = $env:LUMA_TEST_EXE
@@ -116,9 +118,12 @@ try {
         }
         if ($running.Count) { Start-Process -FilePath $installedExe -ArgumentList '--settings' -WorkingDirectory (Split-Path $installedExe) -WindowStyle Hidden }
     }
+    }
     $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
     Set-Content -LiteralPath "$zip.sha256" -Encoding ASCII -Value "$hash  $archiveName.zip"
-    Write-Host "Verified portable release: $zip"
-    Write-Host "Archive verified: $($files.Count) files; native checks: $($evidence.checks.Count)"
+    Write-Host "Archive hash verified: $zip"
+    Write-Host "Extracted verification directory: $extracted"
+    if ($DeferDesktopChecks) { Write-Host "Desktop checks DEFERRED: $($files.Count) files matched; do not claim native acceptance or replace the live app yet." }
+    else { Write-Host "Archive verified: $($files.Count) files; native checks: $($evidence.checks.Count)" }
     Write-Host "SHA256: $hash"
 } finally { Pop-Location }

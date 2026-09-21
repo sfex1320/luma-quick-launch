@@ -39,3 +39,7 @@
 [data-grab-panning],[data-grab-panning] *{cursor:grabbing!important;user-select:none}
 /* One shared action row preserves directory height; narrow screens scroll instead of wrapping. */
 .stack-panel .directory-footer{display:block;flex:none;padding:5px 0 0;margin-top:5px;overflow:hidden}.directory-footer-actions{display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;overscroll-behavior:contain;padding:2px 0}.directory-footer-actions>.directory-open-current{flex:none;display:flex;align-items:center;gap:4px;white-space:nowrap;font-size:10px;line-height:16px;min-height:30px;height:30px;padding:4px 6px!important}.directory-footer-actions svg{flex:none;width:13px;height:13px}
+/* Four fixed tiles fit with the scrollbar and two complete rows remain visible. */
+.folder-cascade>.folder-column,.stack-body-cascade .folder-cascade>.folder-column{flex-basis:min(402px,calc(100vw - 58px));width:min(402px,calc(100vw - 58px))}
+.stack-panel .folder-column .directory-items.launch-grid{grid-template-columns:repeat(4,88px);height:218px;max-height:min(218px,max(94px,var(--menu-available-height,calc(100vh - 308px))));flex:0 1 auto}
+@media(max-width:459px){.stack-panel .folder-column .directory-items.launch-grid{grid-template-columns:repeat(auto-fill,88px)}}

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
-import { ArrowLeft, FolderOpen, RefreshCw, Terminal } from 'lucide-react';
-import type { Color, FolderListing, LaunchItem, ProjectTestTask } from '../contracts';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { ArrowLeft, FolderOpen, Terminal } from 'lucide-react';
+import type { Color, FolderEntry, FolderListing, LaunchItem, ProjectTestTask } from '../contracts';
 import { request } from '../bridge';
 import { FolderEntryIcon } from './FolderEntryIcon';
 import { SplitFolderTile } from './SplitFolderTile';
@@ -9,10 +9,14 @@ import './folder-browser.css';
 import { useBlankPan } from './useBlankPan';
 import { DirectoryActionButtons, DirectoryActions, useDirectoryActions } from './DirectoryActions';
 
+export type FolderHeaderControls = { loading: boolean; disabled: boolean; refresh: () => void; back?: () => void };
 interface Props {
   projectId: string; item: LaunchItem; color: Color; highlight: string | null;
   onOpen: (entryId: string) => void; onBackToGroup?: () => void; onNavigate?: () => void; leadingColumns?: number;
   onRunTest: (taskId: string) => void; runningTest: boolean;
+  onHeaderChange?: (controls: FolderHeaderControls | null) => void;
+  renderEntryAccessory?: (entry: FolderEntry, listing: FolderListing, trail: string[]) => ReactNode;
+  initialTrail?: string[]; onTrailChange?: (trail: string[]) => void;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void;
 }
@@ -25,7 +29,11 @@ export function FolderBrowser(props: Props) {
   const listings = useRef(new Map<number, FolderListing>());
   const levelsRef = useRef(levels); levelsRef.current = levels;
   const current = useRef(props); current.current = props;
+  // Remember names only. Every reopened level must acquire a fresh host token
+  // from its current parent listing before the next level can be requested.
+  const restoring = useRef({ names: (props.initialTrail ?? []).slice(0, 11), active: !!props.initialTrail?.length });
   const refreshTree = useCallback(() => {
+    restoring.current.active = false;
     current.current.onPointerCancel(); current.current.onNavigate?.(); clearFolderThumbnails(); listings.current.clear();
     const next = [{ name: current.current.item.name }]; levelsRef.current = next; setLevels(next); setLimit('');
     setGeneration(value => value + 1); window.dispatchEvent(new Event('luma:cascade-layout'));
@@ -34,6 +42,7 @@ export function FolderBrowser(props: Props) {
   const actionsRef = useRef(actions); actionsRef.current = actions;
   const enter = useCallback((index: number, folderId: string, name: string) => {
     if (!actionsRef.current.beforeNavigate()) return;
+    restoring.current.active = false;
     if (index >= 11) { setLimit('已展开 12 层，可打开当前目录继续浏览。'); return; }
     if (levelsRef.current[index + 1]?.folderId === folderId) return;
     current.current.onNavigate?.();
@@ -41,6 +50,20 @@ export function FolderBrowser(props: Props) {
     window.dispatchEvent(new Event('luma:cascade-layout'));
     setLevels(previous => [...previous.slice(0, index + 1), { folderId, name }]); setLimit('');
   }, []);
+  useEffect(() => { if (!restoring.current.active) current.current.onTrailChange?.(levels.slice(1).map(level => level.name)); }, [levels, limit]);
+  const reportListing = (index: number, listing: FolderListing | null) => {
+    if (!listing) { listings.current.delete(index); return; }
+    listings.current.set(index, listing);
+    const restore = restoring.current;
+    if (!restore.active || index !== levelsRef.current.length - 1) return;
+    const name = restore.names[index];
+    if (!name) { restore.active = false; current.current.onTrailChange?.(levelsRef.current.slice(1).map(level => level.name)); return; }
+    const child = listing.entries.find(entry => entry.kind === 'folder' && entry.name === name);
+    if (!child) { restore.active = false; setLimit(`记忆目录「${name}」已不可用，已停留在当前目录。`); return; }
+    const next = [...levelsRef.current, { folderId: child.id, name: child.name }];
+    levelsRef.current = next; setLevels(next);
+    window.dispatchEvent(new Event('luma:cascade-layout'));
+  };
   useEffect(() => {
     if (!props.highlight) return;
     for (const [index, listing] of listings.current) {
@@ -50,29 +73,42 @@ export function FolderBrowser(props: Props) {
   }, [props.highlight, enter]);
   useLayoutEffect(() => {
     const host = root.current?.closest<HTMLElement>('.stack-panel'); if (!host) return;
-    const resize = () => { host.style.width = `${Math.min(innerWidth - 32, (levels.length + (props.leadingColumns ?? 0)) * 402 + 14)}px`; host.dataset.cascadeLayout = String(levels.length); if (root.current) root.current.style.width = `${levels.length * (Math.min(390, innerWidth - 58) + 12) - 12}px`; };
+    const resize = () => { host.style.width = `${Math.min(innerWidth - 32, levels.length * 414 + (props.leadingColumns ?? 0) * 402 + 14)}px`; host.dataset.cascadeLayout = String(levels.length); if (root.current) root.current.style.width = `${levels.length * (Math.min(402, innerWidth - 58) + 12) - 12}px`; };
     resize(); window.addEventListener('resize', resize);
     if (levels.length > 1) root.current?.lastElementChild?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     return () => { window.removeEventListener('resize', resize); host.style.removeProperty('width'); delete host.dataset.cascadeLayout; };
   }, [levels.length, props.leadingColumns]);
   return <><div ref={root} className="folder-cascade" aria-label="逐级目录">
-    {levels.map((level, index) => <FolderPane {...props} key={`${generation}:${level.folderId ?? 'root'}`} level={level} index={index} actions={actions}
-      onListing={listing => { if (listing) listings.current.set(index, listing); else listings.current.delete(index); }}
+    {levels.map((level, index) => <FolderPane {...props} key={`${generation}:${level.folderId ?? 'root'}`} level={level} index={index} trail={levels.slice(1, index + 1).map(parent => parent.name)} isCurrent={index === levels.length - 1} actions={actions}
+      onListing={listing => reportListing(index, listing)}
+      onLoadError={() => { if (restoring.current.active) { restoring.current.active = false; if (index > 0) setLevels(previous => previous.slice(0, index)); setLimit('记忆目录读取失败，已停留在可用的上级目录。'); } }}
       onEnter={(id, name) => enter(index, id, name)}
-      onBack={index ? () => { if (!actions.beforeNavigate()) return; props.onPointerCancel(); props.onNavigate?.(); for (const key of listings.current.keys()) if (key >= index) listings.current.delete(key); setLevels(previous => previous.slice(0, index)); } : props.onBackToGroup ? () => { if (actions.beforeNavigate()) props.onBackToGroup?.(); } : undefined}/>) }
+      onBack={index ? () => { if (!actions.beforeNavigate()) return; restoring.current.active = false; props.onPointerCancel(); props.onNavigate?.(); for (const key of listings.current.keys()) if (key >= index) listings.current.delete(key); setLevels(previous => previous.slice(0, index)); } : props.onBackToGroup ? () => { if (actions.beforeNavigate()) props.onBackToGroup?.(); } : undefined}/>) }
   </div>{limit && <p className="directory-limit" role="status">{limit}</p>}</>;
 }
 
-function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runningTest, level, index, onListing, onEnter, onBack, actions, onBackToGroup: _back, onNavigate: _navigate, leadingColumns: _leading, ...gesture }: Props & { level: Level; index: number; onListing: (listing: FolderListing | null) => void; onEnter: (id: string, name: string) => void; onBack?: () => void; actions: ReturnType<typeof useDirectoryActions> }) {
+function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runningTest, level, index, trail, isCurrent, onListing, onLoadError, onEnter, onBack, actions, onHeaderChange, renderEntryAccessory, initialTrail: _trail, onTrailChange: _trailChange, onBackToGroup: _back, onNavigate: _navigate, leadingColumns: _leading, ...gesture }: Props & { level: Level; index: number; trail: string[]; isCurrent: boolean; onListing: (listing: FolderListing | null) => void; onLoadError: () => void; onEnter: (id: string, name: string) => void; onBack?: () => void; actions: ReturnType<typeof useDirectoryActions> }) {
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [reload, setReload] = useState(0);
   const [testTask, setTestTask] = useState<ProjectTestTask | null>(null), [testError, setTestError] = useState('');
   const report = useRef(onListing); report.current = onListing;
+  const callbacks = useRef({ actions, onHeaderChange, onLoadError, onBack, cancel: gesture.onPointerCancel }); callbacks.current = { actions, onHeaderChange, onLoadError, onBack, cancel: gesture.onPointerCancel };
+  const refresh = useCallback(() => {
+    if (!callbacks.current.actions.beforeNavigate()) return;
+    callbacks.current.cancel(); clearFolderThumbnails(); setReload(value => value + 1);
+  }, []);
+  const back = useCallback(() => callbacks.current.onBack?.(), []);
+  const hasHeaderBack = index === 0 && !!onBack;
+  useEffect(() => {
+    if (!isCurrent) return;
+    callbacks.current.onHeaderChange?.({ loading, disabled: loading || actions.running, refresh, ...(hasHeaderBack ? { back } : {}) });
+    return () => callbacks.current.onHeaderChange?.(null);
+  }, [isCurrent, loading, actions.running, refresh, hasHeaderBack, back]);
   useEffect(() => {
     let alive = true; setLoading(true); setError(''); setListing(null); report.current(null);
     request('folder.list', { projectId, itemId: item.id, ...(level.folderId ? { folderId: level.folderId } : {}) })
       .then(result => { if (alive) { setListing(result); report.current(result); } })
-      .catch(reason => { if (alive) setError((reason as Error).message); }).finally(() => { if (alive) setLoading(false); });
+      .catch(reason => { if (alive) { setError((reason as Error).message); callbacks.current.onLoadError(); } }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; report.current(null); };
   }, [projectId, item.id, item.path, level.folderId, reload]);
   useEffect(() => {
@@ -84,11 +120,10 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
   const pan = useBlankPan();
   return <div className="folder-browser folder-column" data-folder-level={index} aria-label={`${listing?.name ?? level.name} 目录层`}
     onContextMenu={event => { if (listing) actions.openContext(event, listing); }}>
-    <div className="folder-browser-path">
+    {index > 0 && <div className="folder-browser-path">
       {onBack && <button className="icon-button" aria-label="返回上一层" onClick={onBack}><ArrowLeft size={16}/></button>}
       <FolderOpen size={16}/><strong title={listing?.name ?? level.name}>{listing?.name ?? level.name}</strong>
-      <button className="icon-button" aria-label="刷新目录" disabled={loading || actions.running} onClick={() => { if (!actions.beforeNavigate()) return; clearFolderThumbnails(); setReload(n => n + 1); }}><RefreshCw size={14}/></button>
-    </div>
+    </div>}
     {loading && <p className="folder-browser-message" role="status">正在读取目录…</p>}
     {error && <div className="folder-browser-message" role="alert"><p>{error}</p><button className="text-button" onClick={() => setReload(n => n + 1)}>重新读取</button></div>}
     {listing && <>
@@ -99,7 +134,7 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
             <FolderEntryIcon projectId={projectId} itemId={item.id} entry={entry} color={color}/><span><strong>{entry.name}</strong><small>{entry.kind === 'folder' ? '文件夹' : entry.kind === 'app' ? '软件 / 快捷方式' : '文件'}</small></span>
           </button>;
           return <div className="directory-row" key={entry.id} draggable={!actions.running} onPointerDownCapture={event => actions.trackPress(event, entry)} onDragStart={event => actions.dragStart(event, entry)} onDragEnd={actions.dragEnd}
-            onContextMenu={event => actions.openContext(event, listing, entry, entry.kind === 'folder' ? () => onEnter(entry.id, entry.name) : undefined)}>{entry.kind === 'folder' ? <SplitFolderTile name={entry.name} projectId={projectId} entryId={entry.id} folderItemId={item.id} onOpen={() => onOpen(entry.id)} onEnter={() => onEnter(entry.id, entry.name)} gesture={gesture}>{button}</SplitFolderTile> : button}</div>;
+            onContextMenu={event => actions.openContext(event, listing, entry, entry.kind === 'folder' ? () => onEnter(entry.id, entry.name) : undefined)}>{entry.kind === 'folder' ? <SplitFolderTile name={entry.name} projectId={projectId} entryId={entry.id} folderItemId={item.id} onOpen={() => onOpen(entry.id)} onEnter={() => onEnter(entry.id, entry.name)} gesture={gesture}>{button}</SplitFolderTile> : button}{renderEntryAccessory?.(entry, listing, trail)}</div>;
         })}
         {!listing.entries.length && <p className="folder-browser-message">此目录为空</p>}
       </div>

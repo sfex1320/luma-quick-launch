@@ -1,0 +1,13 @@
+.favorite-button{position:absolute;right:0;top:0;width:23px;height:23px;display:grid;place-items:center;border-radius:8px;z-index:4;color:#486e56;background:#ecf6eac9;box-shadow:inset 0 1px 0 #fff9;touch-action:manipulation}
+.favorite-button:hover,.favorite-button:focus-visible{background:#fff;color:#416c32;outline:1px solid #82a078}
+.favorite-button.is-favorite{color:#77703b;background:#eeeac9e8}
+.dock-favorites{display:flex;align-items:center;gap:8px;align-self:stretch;flex-shrink:0;padding:0 8px;border-radius:13px;background:#41614a20;box-shadow:inset 0 1px 4px #344d3912}
+.dock-favorite-divider{align-self:center;height:48%;width:1px;flex-shrink:0;background:#41614a45;margin:0 4px}
+.dock-favorites .dock-slot{height:100%}
+.stack-header-actions{display:flex;align-items:center;gap:2px;flex-shrink:0}
+.recent-row{position:relative}.recent-row>button:first-child{width:100%;padding-right:27px}
+.recent-list .favorite-button{display:grid;padding:0}
+:root[data-theme="dark"] .favorite-button{background:#293b30e6;color:#c4d3b5}
+:root[data-theme="dark"] .favorite-button.is-favorite{color:#ece5ac;background:#424431}
+:root[data-theme="dark"] .dock-favorites{background:#0a1a164f}
+:root[data-theme="dark"] .dock-favorite-divider{background:#b7cabb50}

@@ -61,6 +61,38 @@ public class BridgeRouterTests : IDisposable
     }
 
     [Fact]
+    public async Task FavoriteSavedReferenceLaunchesByIdAndRemovalLeavesDiskUntouched()
+    {
+        var path = Path.Combine(_dir, "favorite-target");
+        Directory.CreateDirectory(path);
+        var content = Path.Combine(path, "keep.txt");
+        File.WriteAllText(content, "user file stays intact");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(TestStates.OneProject("favorite", path), ContractsJson.Options))!;
+        node["projects"]![0]!["favorite"] = true;
+        var saved = await Send(_settings, Request("favorite-save", "app.saveState",
+            $$"""{"state":{{node.ToJsonString()}},"expectedRevision":0}"""));
+        Assert.True(saved.GetProperty("ok").GetBoolean(), saved.ToString());
+        Assert.True(saved.GetProperty("result").GetProperty("projects")[0].TryGetProperty("favorite", out var favorite));
+        Assert.True(favorite.GetBoolean());
+        Assert.Empty(_shell.Launched);
+        _probe.Existing.Add(path);
+        var opened = await Send(_dock, Request("favorite-open", "shell.openItem", """{"projectId":"favorite","itemId":"main"}"""));
+        Assert.True(opened.GetProperty("ok").GetBoolean(), opened.ToString());
+        Assert.Equal(new[] { path }, _shell.Launched);
+
+        var empty = TestStates.Empty();
+        empty.Revision = 1;
+        var removed = await Send(_settings, Request("favorite-remove", "app.saveState",
+            $$"""{"state":{{JsonSerializer.Serialize(empty, ContractsJson.Options)}},"expectedRevision":1}"""));
+        Assert.True(removed.GetProperty("ok").GetBoolean(), removed.ToString());
+        Assert.True(Directory.Exists(path));
+        Assert.Equal("user file stays intact", File.ReadAllText(content));
+        var stale = await Send(_dock, Request("favorite-stale", "shell.openItem", """{"projectId":"favorite","itemId":"main"}"""));
+        Assert.Equal("PATH_NOT_FOUND", stale.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(new[] { path }, _shell.Launched);
+    }
+
+    [Fact]
     public async Task FolderList_ReturnsRealChildrenWithoutLaunchOrSave()
     {
         var root = Path.Combine(_dir, "电梯贴");

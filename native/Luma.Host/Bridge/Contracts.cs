@@ -26,6 +26,7 @@ public sealed class Project
     [JsonRequired, JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonRequired, JsonPropertyName("color")] public string Color { get; set; } = "";
     [JsonRequired, JsonPropertyName("pinned")] public bool Pinned { get; set; }
+    [JsonPropertyName("favorite"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Favorite { get; set; }
     [JsonRequired, JsonPropertyName("items")] public List<LaunchItem> Items { get; set; } = new();
 }
 

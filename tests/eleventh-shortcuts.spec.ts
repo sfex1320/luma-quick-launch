@@ -61,7 +61,7 @@ test('software hover opens a complete configured recent list and launches by IDs
   expect(columns[1].right).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
   expect(columns[1].right).toBeLessThanOrEqual(await page.locator('.stack-panel').evaluate(node => node.getBoundingClientRect().right));
   expect((await calls(page, 'shell.getRecent')).at(-1).params).toEqual({ projectId: 'apps', itemId: 'ps', limit: 6 });
-  await page.getByRole('button', { name: /项目 0/ }).click();
+  await page.locator('button[data-recent-item-id="ps"][data-item-id="r0"]').click();
   await expect.poll(() => calls(page, 'shell.openRecent')).toHaveLength(1);
   expect((await calls(page, 'shell.openRecent'))[0].params).toEqual({ projectId: 'apps', itemId: 'ps', entryId: 'r0' });
 });
@@ -131,7 +131,9 @@ test('a group entry can be dragged out and then dragged into another group witho
 
 test('directory right-drag no longer pans and preserves the context menu', async ({ page }) => {
   await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '打开 资料 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
-  const list = page.locator('.directory-items'); await expect(list).toBeVisible(); const box = await list.boundingBox();
+  const list = page.locator('.directory-items'); await expect(list).toBeVisible();
+  await expect.poll(() => page.locator('.dock-wrap').evaluate(node => node.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
+  const box = await list.boundingBox();
   await page.mouse.move(box!.x + 40, box!.y + box!.height - 8); await page.mouse.down({ button: 'right' });
   await page.mouse.move(box!.x + 40, box!.y + 8, { steps: 4 }); await page.mouse.up({ button: 'right' });
   expect(await list.evaluate(node => node.scrollTop)).toBe(0);

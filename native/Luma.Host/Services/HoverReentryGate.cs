@@ -21,6 +21,14 @@ internal sealed class HoverReentryGate
         return true;
     }
     public void Clear() => _dismissedRegion = null;
+    // A queued timer/WM_MOUSELEAVE is not proof that the pointer is still here.
+    // Observe a physical exit even when it rejects this dwell, so later reentry works.
+    internal bool AllowsDwellAt(Rect hotspot, bool cursorAvailable, int x, int y, bool hotspotHit, bool pressedInput)
+    {
+        if (!cursorAvailable) return false;
+        var reentryAllowed = AllowsHoverAt(x, y);
+        return reentryAllowed && Contains(hotspot, x, y) && hotspotHit && !pressedInput;
+    }
     private static bool Contains(Rect region, int x, int y) =>
         x >= region.Left && x < region.Right && y >= region.Top && y < region.Bottom;
 }

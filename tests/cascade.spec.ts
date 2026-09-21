@@ -68,6 +68,8 @@ test('hover divides a folder into large Open and Enter targets; quick click stay
   await setup(page);
   await page.locator('.dock-project').click();
   expect(await calls(page, 'shell.openItem')).toHaveLength(1);
+  await expect(page.locator('.dock-wrap')).toHaveCount(0);
+  await page.getByRole('button', { name: '展开面板', exact: true }).click();
   await page.getByRole('button', { name: '打开 仓库 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await tile(page, 'src').hover();
   const enter = page.getByRole('button', { name: '浏览 源码 子目录', exact: true });

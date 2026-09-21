@@ -16,6 +16,7 @@ import { addShortcuts } from './core/shortcuts';
 import { GroupIcon } from './components/GroupIcon';
 import { BrandMark } from './components/BrandMark';
 import { mergeProjects, ungroupProject, reorderProject, removeReference, moveReference } from './core/groups';
+import { toggleFavorite } from './core/favorites';
 import { hasExternalFiles, hasProjectDrag, PROJECT_DRAG_TYPE } from './core/settingsDrop';
 import './components/settings-drop.css';
 import { version as appVersion } from '../package.json';
@@ -71,11 +72,11 @@ export default function App() {
   useEffect(() => { document.documentElement.dataset.theme = state?.preferences.theme ?? 'light'; document.documentElement.dataset.motion = state?.preferences.reducedMotion ? 'reduced' : 'full'; document.body.classList.toggle('overlay-body', overlay); document.documentElement.classList.toggle('overlay-html', overlay); }, [state?.preferences.theme, state?.preferences.reducedMotion, overlay]);
   useEffect(() => { const handler = (e: KeyboardEvent) => { if (!e.defaultPrevented && !e.repeat && !e.isComposing && !e.altKey && !e.shiftKey && (e.ctrlKey || e.metaKey) && e.code === 'KeyK' && !(e.target as Element)?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="dialog"]') && !document.querySelector('dialog[open],[role="dialog"]')) { e.preventDefault(); if (nativeMode) void request('window.openSettings', { section: 'search' }).catch(error => notify(error.message)); else setSearchOpen(true); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [overlay]);
   const openItem = async (project: Project, item: LaunchItem) => {
-    if (launchBusy.current) return;
-    if (status !== '已保存') { notify('正在保存配置，请稍后再打开。'); return; }
+    if (launchBusy.current) return false;
+    if (status !== '已保存') { notify('正在保存配置，请稍后再打开。'); return false; }
     launchBusy.current = true;
-    try { const result = await request('shell.openItem', { projectId: project.id, itemId: item.id }); if (!result.accepted) throw new Error('系统未接受启动请求'); notify(nativeMode ? `已请求打开「${item.name}」` : `演示：打开「${item.name}」 · 未访问真实文件`); }
-    catch (e) { notify((e as Error).message); }
+    try { const result = await request('shell.openItem', { projectId: project.id, itemId: item.id }); if (!result.accepted) throw new Error('系统未接受启动请求'); notify(nativeMode ? `已请求打开「${item.name}」` : `演示：打开「${item.name}」 · 未访问真实文件`); return true; }
+    catch (e) { notify((e as Error).message); return false; }
     finally { launchBusy.current = false; }
   };
   const openSettings = () => { if (overlay && nativeMode) void request('window.openSettings', { section: 'appearance' }).catch(e => notify(e.message)); else { setPage('appearance'); document.querySelector('.appearance')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } };
@@ -148,7 +149,7 @@ export default function App() {
     }
     return result;
   }, projectId);
-  const dock = <Dock projects={state.projects} preferences={state.preferences} onOpen={openItem} onSettings={openSettings} onSearch={openSearch} overlay={overlay} onDropText={importUrls} onGroup={groupProjects} onUngroup={splitProject} onReorder={(source, target, after) => changeGrouping(s => reorderProject(s, source, target, after), '已调整顺序')} onRemove={(projectId, itemId) => changeGrouping(s => removeReference(s, projectId, itemId), '已移除快捷引用，源文件保留')} onMoveItem={(source, item, target) => changeGrouping(s => moveReference(s, source, item, target), '已调整快捷引用')} onDropFiles={(files, projectId) => importShortcuts(() => request('shell.resolveDrop', {}, files), projectId)}/>;
+  const dock = <Dock onFavorite={(name, color, items) => changeGrouping(s => toggleFavorite(s, name, color, items), '收藏已更新，仅保存快捷引用')} projects={state.projects} preferences={state.preferences} onOpen={openItem} onSettings={openSettings} onSearch={openSearch} overlay={overlay} onDropText={importUrls} onGroup={groupProjects} onUngroup={splitProject} onReorder={(source, target, after) => changeGrouping(s => reorderProject(s, source, target, after), '已调整顺序')} onRemove={(projectId, itemId) => changeGrouping(s => removeReference(s, projectId, itemId), '已移除快捷引用，源文件保留')} onMoveItem={(source, item, target) => changeGrouping(s => moveReference(s, source, item, target), '已调整快捷引用')} onDropFiles={(files, projectId) => importShortcuts(() => request('shell.resolveDrop', {}, files), projectId)}/>;
   const entries = state.projects.reduce((sum, p) => sum + p.items.length, 0), pinned = state.projects.filter(p => p.pinned).length;
   const health = `${pinned}/${state.projects.length} 置顶`;
   return <>

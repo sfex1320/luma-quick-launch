@@ -22,6 +22,7 @@ internal sealed class NativeHotspotWindow : IDisposable
 
     private IntPtr _hwnd;
     private bool _trackingLeave;
+    private bool _leftPressStartedHere;
     private bool _disposed;
     private OleDropRegistration? _dropRegistration;
 
@@ -73,6 +74,7 @@ internal sealed class NativeHotspotWindow : IDisposable
 
     public void SetRect(int x, int y, int width, int height)
     {
+        _leftPressStartedHere = false;
         if (_hwnd == IntPtr.Zero) return;
         var positioned = SetWindowPos(_hwnd, HwndTopmost, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         Log.Info($"热区定位 hwnd=0x{_hwnd:X} rect={x},{y},{width},{height} tracking={_trackingLeave} ok={positioned}");
@@ -81,6 +83,7 @@ internal sealed class NativeHotspotWindow : IDisposable
     public void HideWindow()
     {
         _trackingLeave = false;
+        _leftPressStartedHere = false;
         if (_hwnd != IntPtr.Zero) ShowWindow(_hwnd, SW_HIDE);
     }
 
@@ -93,9 +96,19 @@ internal sealed class NativeHotspotWindow : IDisposable
     {
         switch (msg)
         {
+            case 0x0201: // WM_LBUTTONDOWN: a release alone can come from another app's drag.
+                _leftPressStartedHere = true;
+                break;
             case 0x0202: // WM_LBUTTONUP: clicking the top-edge shortcut opens immediately.
+                var clickedHere = _leftPressStartedHere;
+                _leftPressStartedHere = false;
+                if (!clickedHere) break;
                 Log.Info($"热区原生单击 hwnd=0x{hwnd:X}");
                 Activated?.Invoke(this, EventArgs.Empty);
+                break;
+            case 0x001F: // WM_CANCELMODE.
+            case 0x0215: // WM_CAPTURECHANGED.
+                _leftPressStartedHere = false;
                 break;
             case Win32.WM_MOUSEMOVE:
                 if (!_trackingLeave)
@@ -114,6 +127,7 @@ internal sealed class NativeHotspotWindow : IDisposable
                 break;
             case Win32.WM_MOUSELEAVE:
                 _trackingLeave = false;
+                _leftPressStartedHere = false;
                 Log.Info($"热区原生 WM_MOUSELEAVE hwnd=0x{hwnd:X}");
                 CursorLeave?.Invoke(this, EventArgs.Empty);
                 break;

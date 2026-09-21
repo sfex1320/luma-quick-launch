@@ -75,6 +75,7 @@ test('same-tick remote events merge with a local edit and settings matches the d
   const final = await page.evaluate(() => (window as any).__state());
 
   const dock = await context.newPage(); await attachHost(dock, final); await dock.goto('/?view=dock&mode=native');
+  await expect.poll(() => dock.evaluate(() => (window as any).__calls.some((call: any) => call.method === 'window.sync'))).toBe(true);
   await dock.evaluate(() => (window as any).__emitVisibility());
   await expect(dock.getByRole('navigation', { name: '快捷启动面板' })).toBeVisible();
   expect((await dock.locator('.dock').boundingBox())!.width).toBeCloseTo(720, 0);
@@ -91,6 +92,7 @@ test('a true same-field conflict preserves the local settings view and remote do
   expect(await saveCount(page)).toBe(0);
 
   const dock = await context.newPage(); await attachHost(dock, remote); await dock.goto('/?view=dock&mode=native');
+  await expect.poll(() => dock.evaluate(() => (window as any).__calls.some((call: any) => call.method === 'window.sync'))).toBe(true);
   await dock.evaluate(() => (window as any).__emitVisibility());
   await expect(dock.getByRole('navigation', { name: '快捷启动面板' })).toBeVisible();
   expect((await dock.locator('.dock').boundingBox())!.width).toBeCloseTo(800, 0);

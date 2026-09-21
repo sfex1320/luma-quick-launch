@@ -39,7 +39,18 @@ public sealed class EdgeActivation : IDisposable
         _dockHandle = dockHandle; _layoutProvider = layoutProvider; _keepOpen = keepOpen ?? (() => false);
         _dockContainsPoint = dockContainsPoint ?? ((_, _) => false);
         _dwellTimer = new DispatcherTimer { Interval = DwellDelay };
-        _dwellTimer.Tick += (_, _) => { _dwellTimer.Stop(); Log.Info($"热区驻留到期 hover={_hover?.Monitor} visible={DockVisible}"); if (_hover is not null && AllowsHoverAtCursor()) RequestShow(_hover); };
+        _dwellTimer.Tick += (_, _) =>
+        {
+            _dwellTimer.Stop();
+            var hover = _hover;
+            _hover = null;
+            Log.Info($"热区驻留到期 hover={hover?.Monitor} visible={DockVisible}");
+            if (hover is null || Paused || !_hotspots.TryGetValue(hover.Monitor, out var current) || current.Layout != hover) return;
+            var available = Win32.GetCursorPos(out var point);
+            if (_hoverReentry.AllowsDwellAt(new Rect(hover.X, hover.Y, hover.Width, hover.Height),
+                    available, point.X, point.Y, available && Win32.WindowFromPoint(point) == current.Window.Handle, HasPressedInput()))
+                RequestShow(hover);
+        };
         _collapseTimer = new DispatcherTimer { Interval = CollapseCheckInterval };
         _collapseTimer.Tick += (_, _) => CheckCollapse();
         _fullscreenTimer = new DispatcherTimer { Interval = FullscreenCheckInterval };
@@ -102,7 +113,8 @@ public sealed class EdgeActivation : IDisposable
     public static bool HasPressedInput() => HasPressedInput(Win32.GetAsyncKeyState);
     internal static bool HasPressedInput(Func<int, short> keyState) => InteractionKeys.Any(key => (keyState(key) & 0x8000) != 0);
     // Mouse buttons + Shift / Ctrl / Alt / both Windows keys; no low-bit historical
-    // press flag, no keyboard hook, and no key polling while the dock is hidden.
+    // press flag or keyboard hook. Hidden docks read once at hover dwell expiry;
+    // only visible docks perform the existing bounded collapse checks.
     private static readonly int[] InteractionKeys = { 0x01, 0x02, 0x04, 0x05, 0x06, 0x10, 0x11, 0x12, 0x5B, 0x5C };
     // Global input can delay starting auto-hide, but cannot reverse an exit: Alt+Tab,
     // Win+Down and clicks in other apps are not interactions with this dock.

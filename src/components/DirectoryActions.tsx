@@ -30,9 +30,10 @@ export function useDirectoryActions({ projectId, itemId, onOpen, onMutated, canc
 }) {
   const [context, setContext] = useState<Context | null>(null), [form, setForm] = useState<Form | null>(null);
   const [running, setRunning] = useState(false), [dragging, setDragging] = useState(false), [notice, setNotice] = useState('');
+  const [noticeOwner, setNoticeOwner] = useState<string | null>(null);
   const [prepared, setPrepared] = useState(preparedMove);
   const activeRequest = useRef(false), alive = useRef(true);
-  const pressed = useRef<{ id: string; at: number } | null>(null);
+  const pressed = useRef<{ id: string; at: number; blocked: boolean } | null>(null);
   const callbacks = useRef({ onMutated, cancelGesture }); callbacks.current = { onMutated, cancelGesture };
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const changed = () => setPrepared(preparedMove); window.addEventListener(preparedEvent, changed); return () => window.removeEventListener(preparedEvent, changed); }, []);
@@ -43,12 +44,12 @@ export function useDirectoryActions({ projectId, itemId, onOpen, onMutated, canc
   }, [busy]);
   const closeContext = useCallback(() => setContext(null), []);
   const closeForm = () => { if (!activeRequest.current) setForm(null); };
-  const beginForm = (next: Form) => { if (activeRequest.current) return; callbacks.current.cancelGesture(); setContext(null); setNotice(''); setForm(next); };
+  const beginForm = (next: Form) => { if (activeRequest.current) return; callbacks.current.cancelGesture(); setContext(null); setNotice(''); setNoticeOwner(null); setForm(next); };
   const confirmMove = (listing: FolderListing, source: MoveSource, target = listing.folderId, targetName = listing.name) =>
     beginForm({ type: 'move', owner: listing.folderId, target, targetName, source });
   const copy = async (entryId: string) => {
     if (activeRequest.current) return;
-    activeRequest.current = true; setRunning(true); setNotice('');
+    activeRequest.current = true; setRunning(true); setNotice(''); setNoticeOwner(null);
     try {
       const result = await request('folder.getPath', { projectId, itemId, entryId });
       if (!alive.current) return;
@@ -75,7 +76,7 @@ export function useDirectoryActions({ projectId, itemId, onOpen, onMutated, canc
   };
   const openContext = (event: MouseEvent, listing: FolderListing, entry?: FolderEntry, onEnter?: () => void) => {
     if (event.defaultPrevented || activeRequest.current) return;
-    event.preventDefault(); event.stopPropagation(); callbacks.current.cancelGesture(); setForm(null);
+    event.preventDefault(); event.stopPropagation(); callbacks.current.cancelGesture(); setForm(null); setNoticeOwner(null);
     setContext({ x: event.clientX, y: event.clientY, listing, entry, onEnter });
   };
   const actions: MenuAction[] = context ? [
@@ -90,12 +91,19 @@ export function useDirectoryActions({ projectId, itemId, onOpen, onMutated, canc
     ...(!context.entry || context.entry.kind === 'folder' ? [{ label: '粘贴移动到此实际目录', disabled: !prepared, action: () => { if (prepared) confirmMove(context.listing, prepared, context.entry?.id ?? context.listing.folderId, context.entry?.name ?? context.listing.name); } }] : []),
   ] : [];
   return {
-    context, actions, closeContext, form, closeForm, running, notice, prepared, submit, copy, confirmMove, openContext,
+    context, actions, closeContext, form, closeForm, running, notice, noticeOwner, prepared, submit, copy, confirmMove, openContext,
+    moveTo: (listing: FolderListing) => {
+      if (activeRequest.current) return;
+      if (preparedMove) { confirmMove(listing, preparedMove); return; }
+      callbacks.current.cancelGesture(); setNoticeOwner(listing.folderId);
+      setNotice('先右键目录项选择“准备移动”，或将目录项拖到此处，再确认实际移动。');
+    },
     create: (listing: FolderListing) => beginForm({ type: 'create', owner: listing.folderId, target: listing.folderId, targetName: listing.name, initial: '' }),
     clearPrepared: () => prepare(null),
     beforeNavigate: () => { if (activeRequest.current) return false; setContext(null); setForm(null); return true; },
-    trackPress: (event: PointerEvent, entry: FolderEntry) => { if (event.button === 0) pressed.current = { id: entry.id, at: performance.now() }; },
+    trackPress: (event: PointerEvent, entry: FolderEntry) => { if (event.button === 0) pressed.current = { id: entry.id, at: performance.now(), blocked: event.target instanceof Element && !!event.target.closest('.favorite-button') }; },
     dragStart: (event: DragEvent, entry: FolderEntry) => {
+      if (event.defaultPrevented || (event.target instanceof Element && event.target.closest('.favorite-button')) || (pressed.current?.id === entry.id && pressed.current.blocked)) { event.preventDefault(); event.stopPropagation(); return; }
       // A settled long press belongs to continuous launch/navigation. Do not let HTML drag cancel its capture.
       if (pressed.current?.id === entry.id && performance.now() - pressed.current.at >= 300) { event.preventDefault(); return; }
       if (activeRequest.current || form) { event.preventDefault(); return; }
@@ -127,7 +135,7 @@ export function DirectoryActionButtons({ projectId, itemId, listing, controller,
     <button type="button" {...props('move-directory')} className={`directory-move-target ${over ? 'drag-over' : ''} ${highlight === actionId('move-directory') ? 'selected' : ''}`} aria-label={`移动到当前实际目录 ${listing.name}`} title={controller.prepared ? `移动「${controller.prepared.name}」到当前实际目录（需确认）` : '将真实目录项拖到这里，确认后移动'} aria-disabled={controller.running}
       onDragOver={event => { if (!event.dataTransfer.types.includes(REAL_ENTRY_MIME)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = controller.running ? 'none' : 'move'; setOver(!controller.running); }}
       onDragLeave={() => setOver(false)} onDrop={event => { setOver(false); controller.drop(event, listing); }}
-      onClick={event => { if (event.detail === 0 && controller.prepared && !controller.running) controller.confirmMove(listing, controller.prepared); }}><MoveRight size={14}/></button>
+      onClick={event => { if (event.detail === 0) controller.moveTo(listing); }}><MoveRight size={14}/></button>
   </>;
 }
 
@@ -154,7 +162,7 @@ export function DirectoryActions({ listing, controller, showNotice }: { listing:
       <div className="directory-form-buttons"><button type="button" className="text-button" disabled={controller.running} onClick={controller.closeForm}>取消</button>
         <button ref={confirmation} type="submit" className="directory-confirm" disabled={controller.running || (form.type !== 'move' && (!name || badName))}>{controller.running ? '正在更新实际目录…' : form.type === 'move' ? '确认移动' : form.type === 'create' ? '确认新建' : '确认重命名'}</button></div>
     </form>}
-    {showNotice && controller.notice && <p className="directory-operation-notice" role="status">{controller.notice}</p>}
+    {(controller.noticeOwner ? controller.noticeOwner === listing.folderId : showNotice) && controller.notice && <p className="directory-operation-notice" role="status">{controller.notice}</p>}
     {controller.context?.listing.folderId === listing.folderId && createPortal(<ContextMenu x={controller.context.x} y={controller.context.y} actions={controller.actions} onClose={controller.closeContext}/>, document.body)}
   </div>;
 }

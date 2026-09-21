@@ -43,6 +43,9 @@
           "pinned": {
             "type": "boolean"
           },
+          "favorite": {
+            "type": "boolean"
+          },
           "items": {
             "minItems": 1,
             "maxItems": 200,
