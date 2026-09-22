@@ -120,10 +120,10 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
   const pan = useBlankPan();
   return <div className="folder-browser folder-column" data-folder-level={index} aria-label={`${listing?.name ?? level.name} 目录层`}
     onContextMenu={event => { if (listing) actions.openContext(event, listing); }}>
-    {index > 0 && <div className="folder-browser-path">
-      {onBack && <button className="icon-button" aria-label="返回上一层" onClick={onBack}><ArrowLeft size={16}/></button>}
+    <div className="folder-browser-path">
+      {index > 0 && onBack && <button className="icon-button" aria-label="返回上一层" onClick={onBack}><ArrowLeft size={16}/></button>}
       <FolderOpen size={16}/><strong title={listing?.name ?? level.name}>{listing?.name ?? level.name}</strong>
-    </div>}
+    </div>
     {loading && <p className="folder-browser-message" role="status">正在读取目录…</p>}
     {error && <div className="folder-browser-message" role="alert"><p>{error}</p><button className="text-button" onClick={() => setReload(n => n + 1)}>重新读取</button></div>}
     {listing && <>

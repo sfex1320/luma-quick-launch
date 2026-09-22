@@ -20,6 +20,8 @@ public sealed class SearchWindow : Window, IHostClient
         Title = "Luma 搜索";
         Width = 820; Height = 620; MinWidth = 480; MinHeight = 360;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        // The dock is always topmost; a normal search window would be covered and unreachable.
+        Topmost = true;
         _web = new WebView2();
         _theme = new WindowTheme(this, _web, store);
         _reliability = new WebViewReliability(_web, "搜索窗", message =>

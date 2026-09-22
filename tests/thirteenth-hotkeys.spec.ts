@@ -33,7 +33,7 @@ async function nativeFixture(page: Page) {
   await page.goto('/?view=dock&mode=native'); await expect(page.locator('.dock-project')).toBeVisible(); await page.waitForTimeout(700);
 }
 test('record single and modifier shortcuts, duplicate detection, persistence and removal', async ({ page }) => {
-  await preview(page, []); await page.getByRole('button', { name: '设置与备份', exact: true }).click();
+  await preview(page, []); await page.getByRole('button', { name: '快捷键', exact: true }).click();
   const recorder = page.getByLabel('录制快捷键');
   await recorder.click(); await expect(recorder).toHaveValue('请按下快捷键…'); await recorder.press('a');
   await expect(recorder).toHaveValue('A'); await expect(page.getByLabel('快捷键生效范围')).toBeDisabled();
@@ -45,7 +45,7 @@ test('record single and modifier shortcuts, duplicate detection, persistence and
   await expect(recorder).toHaveValue('Ctrl + Shift + Alt + B'); await expect(page.getByLabel('快捷键生效范围')).toHaveValue('global');
   await page.getByRole('button', { name: '添加快捷键', exact: true }).click(); await expect(page.locator('.shortcut-binding')).toHaveCount(2);
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('luma.state.v1')!).preferences.shortcuts.length)).toBe(2);
-  await page.reload(); await page.getByRole('button', { name: '设置与备份', exact: true }).click(); await expect(page.locator('.shortcut-binding')).toHaveCount(2);
+  await page.reload(); await page.getByRole('button', { name: '快捷键', exact: true }).click(); await expect(page.locator('.shortcut-binding')).toHaveCount(2);
   await page.getByRole('button', { name: '移除快捷键 A', exact: true }).click(); await expect(page.locator('.shortcut-binding')).toHaveCount(1);
 });
 test('single keys require panel focus and do not fire in search input or on repeat', async ({ page }) => {

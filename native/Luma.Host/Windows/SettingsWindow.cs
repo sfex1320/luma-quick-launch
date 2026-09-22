@@ -36,6 +36,8 @@ public sealed class SettingsWindow : Window, IHostClient
         Height = 780;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
+        // Same topmost reason as the search window: the resident dock floats above normal windows.
+        Topmost = true;
 
         var web = new WebView2();
         _web = web;
@@ -107,7 +109,7 @@ public sealed class SettingsWindow : Window, IHostClient
     }
 
     public static string SectionUrl(string section) =>
-        section is "appearance" or "search" ? $"https://luma.local/index.html?mode=native&section={section}" : "https://luma.local/index.html?mode=native&section=projects";
+        section is "appearance" or "search" or "shortcuts" ? $"https://luma.local/index.html?mode=native&section={section}" : "https://luma.local/index.html?mode=native&section=projects";
 
     protected override void OnSourceInitialized(EventArgs e)
     {

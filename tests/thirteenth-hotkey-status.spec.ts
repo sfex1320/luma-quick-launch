@@ -31,7 +31,7 @@ test('refresh registration failure when a chord becomes occupied during recordin
     };
   }, defaults);
   await page.goto('/?mode=native');
-  await page.getByRole('button', { name: '设置与备份', exact: true }).click();
+  await page.getByRole('button', { name: '快捷键', exact: true }).click();
   const status = page.locator('.shortcut-binding small');
   await expect(status).toHaveText('全局快捷键已注册。');
   const recorder = page.getByLabel('录制快捷键');

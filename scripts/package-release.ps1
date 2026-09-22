@@ -74,6 +74,8 @@ try {
 
     # Run the extracted executable, with isolated state, instead of a development host.
     if (-not $DeferDesktopChecks) {
+        # Node writes UTF-8; PS 5.1 would otherwise decode the tee'd logs as GBK and corrupt the JSON evidence.
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     & (Join-Path $PSScriptRoot 'assert-delivery-window.ps1')
     $installedExe = Join-Path $root 'APP/Luma/Luma.exe'
     $running = @(Get-Process -Name Luma -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $installedExe })

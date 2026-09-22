@@ -1,15 +1,16 @@
 import { useState, type ReactNode, type PointerEvent } from 'react';
-import { FolderOpen, X, ArrowUpRight } from 'lucide-react';
+import { FolderOpen, Layers3, X, ArrowUpRight } from 'lucide-react';
 import type { LaunchItem, Project } from '../contracts';
 import { ItemIcon } from './ItemIcon';
 import { SplitFolderTile } from './SplitFolderTile';
 import { useBlankPan } from './useBlankPan';
 import { ContextMenu, type MenuAction } from './ContextMenu';
 
-export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
+export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, withTitle = false, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; withTitle?: boolean; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
   const pan = useBlankPan();
   const [context, setContext] = useState<{ x: number; y: number; actions: MenuAction[] } | null>(null);
   return <div className="folder-column group-column" data-drop-project={project.id} aria-label={`${project.name} 组内入口`} onDragOver={event => { if (editing && event.dataTransfer.types.includes('application/x-luma-entry')) { event.preventDefault(); event.stopPropagation(); } }} onDrop={event => { if (!editing || !event.dataTransfer.types.includes('application/x-luma-entry')) return; event.preventDefault(); event.stopPropagation(); try { const data = JSON.parse(event.dataTransfer.getData('application/x-luma-entry')); onMoveItem?.(data.projectId, data.itemId, project.id); } catch { /* Ignore malformed external drag payloads. */ } }}>
+    {withTitle && <div className="folder-browser-path group-column-path"><Layers3 size={16}/><strong title={project.name}>{project.name}</strong></div>}
     <div className="stack-items launch-grid" {...pan}>
       {project.items.map(item => <div className="group-entry-row" key={item.id} onContextMenu={event => { event.preventDefault(); gesture.onPointerCancel(); setContext({ x: event.clientX, y: event.clientY, actions: [
         { label: '打开', action: () => onOpen(item) },

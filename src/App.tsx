@@ -1,6 +1,6 @@
 import { hasUrlText, parseUrls } from './core/urls';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { LayoutDashboard, Layers3, SlidersHorizontal, Cpu, Search, Plus, ArrowUpRight, ArrowRight, Settings2, Pin, PinOff, Pencil, Trash2, Check, ExternalLink, Monitor, MousePointer2, Download, Upload, ChevronRight, MoveLeft, MoveRight, Command, X, FolderOpen } from 'lucide-react';
+import { LayoutDashboard, Layers3, SlidersHorizontal, Cpu, Search, Plus, ArrowUpRight, ArrowRight, Settings2, Pin, PinOff, Pencil, Trash2, Check, ExternalLink, Monitor, MousePointer2, Download, Upload, ChevronRight, MoveLeft, MoveRight, Command, Keyboard, X, FolderOpen } from 'lucide-react';
 import type { AppState, ImportedShortcut, LaunchItem, Project } from './contracts';
 import { StateSchema } from './contracts';
 import { nativeMode, request, resetDemoStorage } from './bridge';
@@ -21,7 +21,7 @@ import { hasExternalFiles, hasProjectDrag, PROJECT_DRAG_TYPE } from './core/sett
 import './components/settings-drop.css';
 import { version as appVersion } from '../package.json';
 
-type Page = 'overview' | 'projects' | 'appearance' | 'system';
+type Page = 'overview' | 'projects' | 'appearance' | 'system' | 'shortcuts';
 const PAGES: Array<{ id: Page; icon: typeof LayoutDashboard; name: string }> = [
   { id: 'overview', icon: LayoutDashboard, name: '总览' },
   { id: 'projects', icon: Layers3, name: '项目' },
@@ -33,12 +33,13 @@ const PAGE_TITLE: Record<Page, { title: string; sub: string }> = {
   projects: { title: '快捷项与堆叠', sub: '独立的软件、文件夹和文档，也可以组合成项目' },
   appearance: { title: '外观', sub: '面板尺寸与材质' },
   system: { title: '设置与备份', sub: '使用偏好与本机配置' },
+  shortcuts: { title: '快捷键', sub: '面板与全局按键' },
 };
 
 export default function App() {
   const { state, update, status, error } = useWorkspace();
   const section = new URLSearchParams(location.search).get('section');
-  const [page, setPage] = useState<Page>(section === 'appearance' ? 'appearance' : section === 'projects' ? 'projects' : 'overview'), [query, setQuery] = useState(''), [editor, setEditor] = useState<Project | 'new' | null>(null), [searchOpen, setSearchOpen] = useState(section === 'search'), [help, setHelp] = useState(false), [toast, setToast] = useState('');
+  const [page, setPage] = useState<Page>(section === 'appearance' || section === 'projects' || section === 'shortcuts' ? section : 'overview'), [query, setQuery] = useState(''), [editor, setEditor] = useState<Project | 'new' | null>(null), [searchOpen, setSearchOpen] = useState(section === 'search'), [help, setHelp] = useState(false), [toast, setToast] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), fileInput = useRef<HTMLInputElement>(null), launchBusy = useRef(false);
   const workspace = useRef({ state, error }); workspace.current = { state, error };
   const importing = useRef(false);
@@ -53,7 +54,7 @@ export default function App() {
     const navigate = () => {
       const target = new URLSearchParams(location.search).get('section');
       if (target === 'search') { if (editor) pendingSearch.current = true; else setSearchOpen(true); }
-      else if (target === 'appearance' || target === 'projects') setPage(target);
+      else if (target === 'appearance' || target === 'projects' || target === 'shortcuts') setPage(target);
     };
     window.addEventListener('popstate', navigate);
     if (!editor && pendingSearch.current) { pendingSearch.current = false; setSearchOpen(true); }
@@ -161,7 +162,7 @@ export default function App() {
           <div className="cp-nav-caption">常规</div>
           <nav className="cp-nav" aria-label="驾驶舱导航">{PAGES.slice(0, 3).map(tab => <button key={tab.id} className={page === tab.id ? 'active' : ''} onClick={() => setPage(tab.id)}><tab.icon size={15}/>{tab.name}{tab.id === 'projects' && <span className="cp-nav-count">{state.projects.length}</span>}{page === tab.id && <i/>}</button>)}</nav>
           <div className="cp-nav-caption">系统</div>
-          <nav className="cp-nav" aria-label="系统导航"><button className={page === 'system' ? 'active' : ''} onClick={() => setPage('system')}><Settings2 size={15}/>设置与备份{page === 'system' && <i/>}</button></nav>
+          <nav className="cp-nav" aria-label="系统导航"><button className={page === 'system' ? 'active' : ''} onClick={() => setPage('system')}><Settings2 size={15}/>设置与备份{page === 'system' && <i/>}</button><button className={page === 'shortcuts' ? 'active' : ''} onClick={() => setPage('shortcuts')}><Keyboard size={15}/>快捷键{page === 'shortcuts' && <i/>}</button></nav>
           <div className="cp-nav-caption">入口</div>
           <nav className="cp-nav" aria-label="快捷入口"><button aria-label="搜索全部入口" onClick={openSearch}><Search size={15}/>搜索全部<kbd>Ctrl K</kbd></button></nav>
           <div className="cp-sidebar-bottom">
@@ -230,7 +231,6 @@ export default function App() {
 
           {page === 'system' && <>
             <SystemIntegration/>
-            <ShortcutSettings preferences={state.preferences} projects={state.projects} onChange={preferences => change(s => ({ ...s, preferences }))}/>
             <section className="cp-card">
               <header className="cp-card-head"><strong>关于 Luma</strong><span className="cp-badge">v{appVersion} · 测试版</span></header>
               <div className="cp-kv"><span>升级方式</span><strong>安装版覆盖升级 · 便携版完整解压</strong></div>
@@ -251,13 +251,15 @@ export default function App() {
             </section>
           </>}
 
+          {page === 'shortcuts' && <ShortcutSettings preferences={state.preferences} projects={state.projects} onChange={preferences => change(s => ({ ...s, preferences }))}/>}
+
           <div className="cp-footer"><span><Check size={12}/>{status} · {nativeMode ? '本机配置' : '保存在此浏览器'}</span><span>LUMA · ALWAYS WITHIN REACH</span></div>
         </main>
       </div>
     </div>}
     {editor && <ProjectEditor project={editor === 'new' ? undefined : editor} onClose={() => setEditor(null)} onSave={project => { change(s => ({ ...s, projects: s.projects.some(p => p.id === project.id) ? s.projects.map(p => p.id === project.id ? project : p) : [...s.projects, project] })); setEditor(null); notify('项目已更新'); }}/>}
     {searchOpen && <Modal title="搜索项目与入口" onClose={() => { setSearchOpen(false); setQuery(''); }}><div className="search-input"><Search size={20}/><input autoFocus aria-label="搜索项目和文件夹" placeholder="项目名称、文件夹、路径…" value={query} onChange={e => setQuery(e.target.value)}/><kbd>ESC</kbd></div><div className="search-results">{state.projects.flatMap(project => project.items.filter(item => `${project.name} ${item.name} ${item.path}`.toLowerCase().includes(query.toLowerCase())).map(item => <button key={`${project.id}-${item.id}`} onClick={() => { void openItem(project, item); setSearchOpen(false); setQuery(''); }}><CrystalFolder color={project.color} size={30}/><span><strong>{item.name}</strong><small>{project.name} · {item.path}</small></span><ArrowUpRight size={16}/></button>))}{!state.projects.some(p => p.items.some(i => `${p.name} ${i.name} ${i.path}`.toLowerCase().includes(query.toLowerCase()))) && <p className="empty-message">没有匹配的入口</p>}</div></Modal>}
-    {help && <Modal title="一点小手势，大一点的专注" onClose={() => setHelp(false)}><div className="help-steps"><div><MousePointer2/><span><strong>长按 · 滑动 · 松手</strong><p>在面板上长按项目约 300 毫秒，滑向其他文件夹，松手打开。滑出面板松手取消。</p></span></div><div><FolderOpen/><span><strong>单击，直达主目录</strong><p>单个入口直接打开，软件组点击进入；悬停“进入”、长按或右键可展开。</p></span></div><div><SlidersHorizontal/><span><strong>留出恰好的空间</strong><p>在外观页调整尺寸。主栏右键横拖；子菜单按住空白处，用左键抓手上下拖动。</p></span></div><div><Command/><span><strong>键盘也一样顺手</strong><p>在设置与备份中添加快捷键。单键仅面板有焦点时生效，组合键可全局使用；输入时暂停面板快捷键。</p></span></div></div></Modal>}
+    {help && <Modal title="一点小手势，大一点的专注" onClose={() => setHelp(false)}><div className="help-steps"><div><MousePointer2/><span><strong>长按 · 滑动 · 松手</strong><p>在面板上长按项目约 300 毫秒，滑向其他文件夹，松手打开。滑出面板松手取消。</p></span></div><div><FolderOpen/><span><strong>单击，直达主目录</strong><p>单个入口直接打开，软件组点击进入；悬停“进入”、长按或右键可展开。</p></span></div><div><SlidersHorizontal/><span><strong>留出恰好的空间</strong><p>在外观页调整尺寸。主栏右键横拖；子菜单按住空白处，用左键抓手上下拖动。</p></span></div><div><Command/><span><strong>键盘也一样顺手</strong><p>在系统 · 快捷键页添加快捷键。单键仅面板有焦点时生效，组合键可全局使用；输入时暂停面板快捷键。</p></span></div></div></Modal>}
     {groupSourceId && <Modal title="合并到其他图标" onClose={() => setGroupSourceId(null)}><p className="group-description">将「{state.projects.find(p => p.id === groupSourceId)?.name}」的入口加入下列目标。目标保留名称、颜色、置顶状态及默认入口；重复路径只保留一份，实际文件不会移动。</p><div className="group-targets">{state.projects.filter(p => p.id !== groupSourceId).map(project => <button key={project.id} aria-label={`合并到 ${project.name}`} onClick={() => groupProjects(groupSourceId, project.id)}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={36}/><span><strong>{project.name}</strong><small>{project.items.length} 个入口{project.pinned ? ' · 已置顶' : ' · 未置顶'}</small></span></button>)}</div></Modal>}
     {toast && <div role="status" data-native-hit={overlay ? true : undefined} className="toast"><Check size={16}/>{toast}<button aria-label="关闭提示" onClick={() => setToast('')}><X size={14}/></button></div>}
   </>;
