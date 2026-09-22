@@ -5,6 +5,8 @@ interface DockMotionOptions {
   reducedMotion: boolean;
   /** A native reveal waits for its expanded window.sync acknowledgement. */
   waitForLayout?: boolean;
+  /** Enter/exit durations in ms; the user preference picks one of three gears. */
+  durations?: { enter: number; exit: number };
   onExited: () => void;
 }
 
@@ -26,7 +28,7 @@ function hiddenTranslation(element: HTMLElement): number {
 }
 
 /** A single compositor animation; presence ends only after the current exit. */
-export function useDockMotion({ visible, reducedMotion, waitForLayout = false, onExited }: DockMotionOptions) {
+export function useDockMotion({ visible, reducedMotion, waitForLayout = false, durations = { enter: 650, exit: 600 }, onExited }: DockMotionOptions) {
   const [present, setPresent] = useState(visible);
   const wrap = useRef<HTMLDivElement>(null);
   const mountedElement = useRef<HTMLElement | null>(null);
@@ -76,7 +78,7 @@ export function useDockMotion({ visible, reducedMotion, waitForLayout = false, o
     const reduced = reducedMotion;
     element.style.willChange = reduced ? '' : 'transform';
     const animation = element.animate([from, target], {
-      duration: reduced ? 0 : visible ? 650 : 600,
+      duration: reduced ? 0 : visible ? durations.enter : durations.exit,
       easing: 'cubic-bezier(.42,0,.58,1)',
       fill: 'forwards',
     });
@@ -94,7 +96,7 @@ export function useDockMotion({ visible, reducedMotion, waitForLayout = false, o
     };
     // Do not cancel in dependency cleanup: the next effect reads this frame.
     return () => { animation.onfinish = null; };
-  }, [visible, present, reducedMotion, waitForLayout]);
+  }, [visible, present, reducedMotion, waitForLayout, durations]);
 
   useLayoutEffect(() => () => {
     if (entranceFrame.current !== null) cancelAnimationFrame(entranceFrame.current);

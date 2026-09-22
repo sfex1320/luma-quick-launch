@@ -11,6 +11,7 @@ import { Dock } from './components/Dock';
 import { Appearance } from './components/Appearance';
 import { SystemIntegration } from './components/SystemIntegration';
 import { ShortcutSettings } from './components/ShortcutSettings';
+import { UpdateCard } from './components/UpdateCard';
 import { Modal } from './components/Modal';
 import { ProjectEditor } from './components/ProjectEditor';
 import { addShortcuts } from './core/shortcuts';
@@ -250,6 +251,7 @@ export default function App() {
               <div className="info-box"><Monitor size={18}/><p>{nativeMode ? '文件夹、软件和文件均可添加；拖到浮岛空白处独立置顶，拖到已有图标加入堆叠。' : '当前为前端预览。系统热区、真实文件启动和桌面背景磨砂由原生内核接入。预览不会修改你的文件。'}</p></div>
               <button className="text-button" onClick={() => { setPage('overview'); setHelp(true); }}>查看操作指南<ArrowRight size={14}/></button>
             </section>
+            {nativeMode && <UpdateCard/>}
           </>}
 
           {page === 'shortcuts' && <ShortcutSettings preferences={state.preferences} projects={state.projects} onChange={preferences => change(s => ({ ...s, preferences }))}/>}

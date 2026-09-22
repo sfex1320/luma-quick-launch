@@ -113,7 +113,9 @@ public partial class App : Application, IWindowHost
 
         _launcher = new LaunchService(_store);
         _backdrop = new BackdropService();
-        _router = new BridgeRouter(_store, _launcher, new FileDialogFolderPicker(), this, new DispatcherSyncContext(Dispatcher));
+        // 便携更新：替换脚本启动后由桥接在应答发出后触发优雅退出（UpdateService 不依赖 Application.Current）。
+        _router = new BridgeRouter(_store, _launcher, new FileDialogFolderPicker(), this, new DispatcherSyncContext(Dispatcher),
+            updater: new UpdateService(() => Dispatcher.BeginInvoke(() => Shutdown())));
 
         _monitors.DisplaysChanged += OnDisplaysChanged;
         _store.StateChanged += state =>

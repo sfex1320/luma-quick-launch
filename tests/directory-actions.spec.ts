@@ -212,13 +212,15 @@ test('a forged drag with a raw path is not accepted by the actual move target', 
   await expect(page.getByRole('status')).toContainText('重新拖入'); expect(await calls(page, 'folder.move')).toHaveLength(0);
 });
 
-test('right-button movement keeps the entry context menu available', async ({ page }) => {
+test('right-drag pans and suppresses the entry context menu; a stationary right click opens it', async ({ page }) => {
   await setup(page); const grid = page.locator('.directory-items'); const box = await grid.boundingBox();
-  await page.mouse.move(box!.x + 30, box!.y + 30); await page.mouse.down({ button: 'right' });
-  await page.mouse.move(box!.x + 30, box!.y + 55, { steps: 4 }); await page.mouse.up({ button: 'right' });
-  await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible();
-  expect(await grid.evaluate(node => node.scrollTop)).toBe(0);
+  await page.mouse.move(box!.x + 30, box!.y + 55); await page.mouse.down({ button: 'right' });
+  await page.mouse.move(box!.x + 30, box!.y + 20, { steps: 4 }); await page.mouse.up({ button: 'right' });
+  await expect(page.getByRole('menu', { name: '快捷操作' })).toHaveCount(0);
   expect(await calls(page, 'folder.open')).toHaveLength(0);
+  await page.waitForTimeout(600);
+  await page.locator('.stack-item[data-item-id="source-file-0"]').click({ button: 'right' });
+  await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible();
 });
 
 test('a quick physical drag reaches only the explicit move confirmation', async ({ page }) => {

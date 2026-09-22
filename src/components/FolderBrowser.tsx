@@ -14,6 +14,7 @@ export type FolderHeaderControls = { name: string; loading: boolean; disabled: b
 interface Props {
   projectId: string; item: LaunchItem; color: Color; highlight: string | null;
   filter: string;
+  editing?: boolean; actionBadges?: Map<string, string>;
   onOpen: (entryId: string) => void; onBackToGroup?: () => void; onNavigate?: () => void; leadingColumns?: number;
   onRunTest: (taskId: string) => void; runningTest: boolean;
   onHeaderChange?: (controls: FolderHeaderControls | null) => void;
@@ -89,7 +90,7 @@ export function FolderBrowser(props: Props) {
   </div>{limit && <p className="directory-limit" role="status">{limit}</p>}</>;
 }
 
-function FolderPane({ projectId, item, color, highlight, filter, onOpen, onRunTest, runningTest, level, index, trail, isCurrent, onListing, onLoadError, onEnter, onBack, actions, onHeaderChange, renderEntryAccessory, initialTrail: _trail, onTrailChange: _trailChange, onBackToGroup: _back, onNavigate: _navigate, leadingColumns: _leading, ...gesture }: Props & { level: Level; index: number; trail: string[]; isCurrent: boolean; onListing: (listing: FolderListing | null) => void; onLoadError: () => void; onEnter: (id: string, name: string) => void; onBack?: () => void; actions: ReturnType<typeof useDirectoryActions> }) {
+function FolderPane({ projectId, item, color, highlight, filter, editing = false, actionBadges, onOpen, onRunTest, runningTest, level, index, trail, isCurrent, onListing, onLoadError, onEnter, onBack, actions, onHeaderChange, renderEntryAccessory, initialTrail: _trail, onTrailChange: _trailChange, onBackToGroup: _back, onNavigate: _navigate, leadingColumns: _leading, ...gesture }: Props & { level: Level; index: number; trail: string[]; isCurrent: boolean; onListing: (listing: FolderListing | null) => void; onLoadError: () => void; onEnter: (id: string, name: string) => void; onBack?: () => void; actions: ReturnType<typeof useDirectoryActions> }) {
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [reload, setReload] = useState(0);
   const [testTask, setTestTask] = useState<ProjectTestTask | null>(null), [testError, setTestError] = useState('');
@@ -140,10 +141,10 @@ function FolderPane({ projectId, item, color, highlight, filter, onOpen, onRunTe
       </div>
       {listing.truncated && <p className="directory-limit">当前显示前 200 项，可打开目录查看全部内容。</p>}
       <footer className="directory-footer"><div className="directory-footer-actions">
-        <button data-item-id={listing.folderId} data-project-id={projectId} data-folder-item-id={item.id} className={`text-button directory-open-current ${highlight === listing.folderId ? 'selected' : ''}`} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(listing.folderId); }}><FolderOpen size={14}/>打开当前目录</button>
+        <button data-item-id={listing.folderId} data-project-id={projectId} data-folder-item-id={item.id} className={`text-button directory-open-current ${highlight === listing.folderId ? 'selected' : ''}`} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(listing.folderId); }}><FolderOpen size={14}/>打开当前目录{editing && actionBadges?.get('openDirectory') && <span className="shortcut-badge">{actionBadges.get('openDirectory')}</span>}</button>
         {testTask && <button data-item-id={testTask.id} data-project-id={projectId} data-folder-item-id={item.id} data-test-task-id={testTask.id} className={`text-button directory-open-current directory-run-test ${highlight === testTask.id ? 'selected' : ''}`} title={`${testTask.label} · ${testTask.command}`} disabled={runningTest}
-          {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onRunTest(testTask.id); }}><Terminal size={14}/>{runningTest ? '正在打开终端…' : testTask.label === '运行测试' ? '测试软件' : testTask.label === '手动启动' ? '打开项目软件' : testTask.label}</button>}
-        <DirectoryActionButtons projectId={projectId} itemId={item.id} listing={listing} controller={actions} highlight={highlight} gesture={gesture}/>
+          {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onRunTest(testTask.id); }}><Terminal size={14}/>{runningTest ? '正在打开终端…' : testTask.label === '运行测试' ? '测试软件' : testTask.label === '手动启动' ? '打开项目软件' : testTask.label}{editing && actionBadges?.get('runProject') && <span className="shortcut-badge">{actionBadges.get('runProject')}</span>}</button>}
+        <DirectoryActionButtons projectId={projectId} itemId={item.id} listing={listing} controller={actions} highlight={highlight} gesture={gesture} editing={editing} badges={actionBadges}/>
       </div></footer>
       {testError && <p className="directory-test-error" role="status">测试识别：{testError}</p>}
       <DirectoryActions listing={listing} controller={actions} showNotice={index === 0}/>

@@ -51,6 +51,7 @@ public sealed record LaunchConfiguration
 public sealed class Preferences
 {
     [JsonPropertyName("shortcuts"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<ShortcutBinding>? Shortcuts { get; set; }
+    [JsonPropertyName("motionSpeed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MotionSpeed { get; set; }
     [JsonPropertyName("recentLimit"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RecentLimit { get; set; }
     [JsonRequired, JsonPropertyName("width")] public double Width { get; set; } = 640;
     [JsonRequired, JsonPropertyName("height")] public double Height { get; set; } = 88;

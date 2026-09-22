@@ -27,7 +27,7 @@ export const ColorSchema = z.enum(['mint', 'blue', 'violet', 'peach', 'gold']);
 export const LaunchCommandSchema = z.object({ command: z.string().min(1).max(1000).refine(value => value.trim().length > 0 && !/[\r\n\0]/.test(value), '请输入非空的单行 CMD 命令'), workingDirectory: z.string().min(1).max(4096).refine(value => !/[\r\n\0]/.test(value) && /^(?:[a-zA-Z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(value), '请输入有效的绝对工作目录') });
 export const ItemSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(120), path: z.string().min(1).max(4096), kind: z.enum(['folder', 'file', 'app', 'url']), launch: LaunchCommandSchema.optional(), note: z.string().max(240).optional(), websiteIcon: z.string().max(87406).refine(isWebsiteIcon, '网站图标必须为小尺寸静态 PNG').optional() }).refine(item => item.kind !== 'url' || isWebsiteUrl(item.path), '网址必须是有效的 HTTP(S) 地址').refine(item => !item.websiteIcon || item.kind === 'url', '只有网址入口可保存网站图标');
 export const ProjectSchema = z.object({ id: z.string().min(1), name: z.string().min(1).max(60), description: z.string().max(160), color: ColorSchema, pinned: z.boolean(), favorite: z.boolean().optional(), items: z.array(ItemSchema).min(1).max(200) });
-export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean(), recentLimit: z.number().int().min(6).max(10).optional(), shortcuts: ShortcutListSchema.optional() });
+export const PreferencesSchema = z.object({ width: z.number().min(320).max(1120), height: z.number().min(64).max(160), iconSize: z.number().min(24).max(64), radius: z.number().min(12).max(32), material: z.enum(['frost', 'soft', 'solid']), theme: z.enum(['light', 'dark']), reducedMotion: z.boolean(), autoHide: z.boolean(), recentLimit: z.number().int().min(6).max(10).optional(), shortcuts: ShortcutListSchema.optional(), motionSpeed: z.enum(['relaxed', 'standard', 'brisk']).optional() });
 export const StateSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), projects: z.array(ProjectSchema).max(100), preferences: PreferencesSchema }).superRefine((state, ctx) => {
   const ids = state.projects.map(p => p.id);
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', message: 'Duplicate project ID' });
@@ -95,7 +95,11 @@ export interface Methods {
   'window.closeSearch': { params: Record<string, never>; result: { accepted: boolean } };
   'window.sync': { params: { expanded: boolean; rects: Rect[]; interacting?: boolean; visibilityId?: number }; result: { applied: boolean } };
   'window.openSettings': { params: { section: 'projects' | 'appearance' | 'search' }; result: { accepted: boolean } };
+  'update.check': { params: Record<string, never>; result: UpdateCheckResult };
+  'update.download': { params: { url: string; fileName: string; sha256Url?: string }; result: { path: string; verified: boolean; bytes: number } };
+  'update.apply': { params: { path: string }; result: { accepted: boolean; mode: 'portable' | 'installer' } };
 }
+export interface UpdateCheckResult { currentVersion: string; latestVersion: string; hasUpdate: boolean; notes: string; publishedAt: string; installMode: 'portable' | 'installer'; asset: { name: string; url: string; size: number; sha256Url: string | null } | null }
 export type Method = keyof Methods;
 export type HostEvent = { event: 'app.stateChanged'; data: AppState } | { event: 'window.visibility'; data: { visible: boolean; visibilityId?: number } } | { event: 'shortcut.activated'; data: { id: string; serial: number } };
 export const resultSchemas = {
@@ -129,5 +133,8 @@ export const resultSchemas = {
   'window.closeSearch': z.object({ accepted: z.boolean() }),
   'window.sync': z.object({ applied: z.boolean() }),
   'window.openSettings': z.object({ accepted: z.boolean() }),
+  'update.check': z.object({ currentVersion: z.string(), latestVersion: z.string(), hasUpdate: z.boolean(), notes: z.string(), publishedAt: z.string(), installMode: z.enum(['portable', 'installer']), asset: z.object({ name: z.string(), url: z.string(), size: z.number(), sha256Url: z.string().nullable() }).nullable() }),
+  'update.download': z.object({ path: z.string(), verified: z.boolean(), bytes: z.number() }),
+  'update.apply': z.object({ accepted: z.boolean(), mode: z.enum(['portable', 'installer']) }),
 };
 export const HostEventSchema = z.discriminatedUnion('event', [z.object({ event: z.literal('app.stateChanged'), data: StateSchema }), z.object({ event: z.literal('window.visibility'), data: z.object({ visible: z.boolean(), visibilityId: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }) }), z.object({ event: z.literal('shortcut.activated'), data: z.object({ id: z.string(), serial: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }) })]);

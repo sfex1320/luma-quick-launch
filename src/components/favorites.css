@@ -20,3 +20,8 @@
 .stack-current-name{font-size:12px;font-weight:550;color:var(--ink-soft);max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
 :root[data-theme="dark"] .stack-filter{background:#1d2620aa;color:var(--ink)}
 :root[data-theme="dark"] .stack-filter:focus{background:#131a15}
+
+/* Round 17: tiny shortcut badge shown in edit mode; never interactive. */
+.shortcut-badge{position:absolute;right:1px;bottom:1px;z-index:5;pointer-events:none;font-size:8px;font-weight:600;line-height:1;padding:2.5px 4px;border-radius:5px;background:#2f4a38e6;color:#eaf5e2;letter-spacing:.2px;max-width:58px;overflow:hidden;text-overflow:ellipsis}
+:root[data-theme="dark"] .shortcut-badge{background:#0f231bea;color:#cfe4c6}
+.dock-action .shortcut-badge{right:0;bottom:0}

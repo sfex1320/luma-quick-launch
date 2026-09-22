@@ -1,8 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { defaults } from '../src/data';
 
-async function setup(page: Page, options: { grouped?: boolean } = {}) {
-  await page.addInitScript(({ preferences, grouped }) => {
+async function setup(page: Page, options: { grouped?: boolean; shortcuts?: Array<Record<string, unknown>>; material?: string } = {}) {
+  await page.addInitScript(({ preferences, grouped, shortcuts, material }) => {
+    if (shortcuts) (preferences as any).shortcuts = shortcuts;
+    if (material) (preferences as any).material = material;
     const host = window as any, listeners: Array<(event: any) => void> = [];
     host.__calls = [];
     host.chrome ||= {};
@@ -22,7 +24,7 @@ async function setup(page: Page, options: { grouped?: boolean } = {}) {
       if (req.method === 'shell.getRecent') { setTimeout(() => respond({ entries: [{ id: 'r1', name: '近期设计.psd', path: 'C:\\Fixture\\近期设计.psd', kind: 'file' }], note: 'Windows 最近项目' }), 5); return; }
       setTimeout(() => respond(req.method === 'window.sync' ? { applied: true } : req.method === 'project.detectTest' ? { task: null } : req.method === 'shell.getIcon' || req.method === 'folder.getThumbnail' ? { dataUrl: null } : { accepted: true }), 2);
     } };
-  }, { preferences: defaults, grouped: !!options.grouped });
+  }, { preferences: defaults, grouped: !!options.grouped, shortcuts: options.shortcuts ?? null, material: options.material ?? null });
   await page.goto('/?view=dock&mode=native');
   await expect(page.locator('.dock')).toBeVisible();
   await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
@@ -105,4 +107,57 @@ test('recents column has no in-column header and reports its name and refresh to
   const before = (await calls(page, 'shell.getRecent')).length;
   await page.getByRole('button', { name: '刷新目录', exact: true }).click();
   await expect.poll(() => calls(page, 'shell.getRecent')).toHaveLength(before + 1);
+});
+
+test('edit mode keeps the open stack and shows remove, favorite and shortcut badges on group tiles', async ({ page }) => {
+  await setup(page, { grouped: true, shortcuts: [
+    { id: 'b1', code: 'KeyB', ctrl: true, shift: false, alt: false, scope: 'global', action: 'item', projectId: 'project', itemId: 'app' },
+    { id: 'b2', code: 'KeyC', ctrl: true, shift: true, alt: false, scope: 'global', action: 'search' },
+  ] });
+  await expect(page.locator('.group-entry-row')).toHaveCount(2);
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
+  await expect(page.locator('.dock')).toHaveClass(/dock-editing/);
+  await expect(page.locator('.stack-panel')).toBeVisible();
+  await expect(page.locator('.group-column .shortcut-remove')).toHaveCount(2);
+  const badge = page.locator('.group-column .shortcut-badge');
+  await expect(badge).toHaveCount(1);
+  await expect(badge).toHaveText('CB');
+  await expect(page.locator('.dock-tools .shortcut-badge')).toHaveText('CSC');
+  await expect(page.locator('.stack-panel .favorite-button').first()).toBeVisible();
+  for (const button of await page.locator('.group-column .shortcut-remove').all()) {
+    const box = (await button.boundingBox())!, glyph = (await button.locator('svg').boundingBox())!;
+    expect(Math.abs(box.x + box.width / 2 - (glyph.x + glyph.width / 2))).toBeLessThan(0.5);
+    expect(Math.abs(box.y + box.height / 2 - (glyph.y + glyph.height / 2))).toBeLessThan(0.5);
+  }
+  await page.getByRole('button', { name: '完成整理', exact: true }).click();
+  await expect(page.locator('.dock')).not.toHaveClass(/dock-editing/);
+  await expect(page.locator('.stack-panel')).toBeVisible();
+});
+
+test('directory footer action buttons carry their shortcut badges in edit mode', async ({ page }) => {
+  await setup(page, { shortcuts: [
+    { id: 'b3', code: 'KeyN', ctrl: true, shift: false, alt: false, scope: 'panel', action: 'newFolder' },
+    { id: 'b4', code: 'KeyO', ctrl: true, shift: false, alt: false, scope: 'panel', action: 'openDirectory' },
+  ] });
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
+  await expect(page.locator('[data-entry-action="create-directory"] .shortcut-badge')).toHaveText('CN');
+  await expect(page.locator('.directory-open-current').first().locator('.shortcut-badge')).toHaveText('CO');
+});
+
+test('solid and frost materials restyle the submenu panel in both themes', async ({ page }) => {
+  await setup(page, { material: 'solid' });
+  const solid = await page.locator('.stack-panel').evaluate(el => { const s = getComputedStyle(el); return { backdrop: s.backdropFilter, bg: s.backgroundColor, image: s.backgroundImage }; });
+  expect(solid.backdrop).toBe('none');
+  expect(solid.bg).toBe('rgba(238, 242, 233, 0.96)');
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  const darkSolid = await page.locator('.stack-panel').evaluate(el => { const s = getComputedStyle(el); return { backdrop: s.backdropFilter, bg: s.backgroundColor }; });
+  expect(darkSolid.backdrop).toBe('none');
+  expect(darkSolid.bg).toBe('rgba(43, 61, 44, 0.965)');
+});
+
+test('frost material keeps the grain overlay on the submenu panel', async ({ page }) => {
+  await setup(page, { material: 'frost' });
+  const frost = await page.locator('.stack-panel').evaluate(el => { const s = getComputedStyle(el); return { backdrop: s.backdropFilter, image: s.backgroundImage }; });
+  expect(frost.backdrop).toContain('blur(28px)');
+  expect(frost.image).toContain('data:image/svg');
 });

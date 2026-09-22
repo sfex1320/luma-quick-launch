@@ -29,3 +29,10 @@ export function shortcutTargetLabel(binding: ShortcutBinding, projects: Project[
   const item = project.items.find(item => item.id === binding.itemId);
   return item ? `${project.name} / ${item.name}` : '目标已失效';
 }
+
+/** Compact badge text for edit-mode tile corners: Ctrl+Shift+Alt+B → CSAB. */
+export function badgeText(binding: Pick<ShortcutBinding, 'code' | 'ctrl' | 'shift' | 'alt'>) {
+  const named: Record<string, string> = { Space: '空格', Enter: '⏎', Tab: '⇥', Escape: 'Esc', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Delete: 'Del', Backspace: '⌫', Home: 'Home', End: 'End', PageUp: 'Pg↑', PageDown: 'Pg↓', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '＼', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/' };
+  const key = named[binding.code] ?? binding.code.replace(/^Key|^Digit/, '').replace(/^Numpad/, '小');
+  return `${binding.ctrl ? 'C' : ''}${binding.shift ? 'S' : ''}${binding.alt ? 'A' : ''}${key}`;
+}

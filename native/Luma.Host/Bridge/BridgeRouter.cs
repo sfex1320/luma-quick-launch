@@ -111,9 +111,10 @@ public sealed class BridgeRouter
     private readonly RecentProjectService _recentProjects;
     private readonly ShortcutImportService _imports = new();
     private readonly SystemIntegrationService _integration;
+    private readonly UpdateService _updater;
     public ShortcutService? Shortcuts { get; set; }
 
-    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null, FolderThumbnailService? thumbnails = null, RecentProjectService? recentProjects = null)
+    public BridgeRouter(StateStore store, LaunchService launcher, IFolderPicker folderPicker, IWindowHost windows, ISyncContext sync, FolderService? folders = null, ShellIconService? icons = null, SystemIntegrationService? integration = null, ProjectTestService? projectTests = null, FolderThumbnailService? thumbnails = null, RecentProjectService? recentProjects = null, UpdateService? updater = null)
     {
         _store = store;
         _launcher = launcher;
@@ -128,6 +129,7 @@ public sealed class BridgeRouter
         _folderMutations = new FolderMutationService(_folders);
         _recentProjects = recentProjects ?? new RecentProjectService(store);
         _integration = integration ?? new SystemIntegrationService();
+        _updater = updater ?? new UpdateService();
     }
 
     public IReadOnlyList<IHostClient> Clients
@@ -276,6 +278,21 @@ public sealed class BridgeRouter
                     return;
                 case "window.openSettings":
                     HandleOpenSettings(source, id, parameters);
+                    return;
+                case "update.check":
+                    if (hasParams && parameters.EnumerateObject().Any()) { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+                    try { RespondOk(source, id, await _sync.RunBackground(_updater.CheckAsync)); }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"update.check 失败：{ex.Message}");
+                        RespondError(source, id, ProtocolErrors.InternalError, ex.Message);
+                    }
+                    return;
+                case "update.download":
+                    await HandleUpdateDownload(source, id, parameters);
+                    return;
+                case "update.apply":
+                    await HandleUpdateApply(source, id, parameters);
                     return;
                 default:
                     RespondError(source, id, ProtocolErrors.MethodNotFound);
@@ -659,6 +676,51 @@ public sealed class BridgeRouter
         var sectionCopy = section;
         _sync.Post(() => _windows.OpenSettings(sectionCopy));
         RespondOk(source, id, new { accepted = true });
+    }
+
+    private async Task HandleUpdateDownload(IHostClient source, string id, JsonElement parameters)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object ||
+            parameters.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != parameters.EnumerateObject().Count() ||
+            parameters.EnumerateObject().Any(p => p.Name is not ("url" or "fileName" or "sha256Url")) ||
+            !parameters.TryGetProperty("url", out var url) || url.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(url.GetString()) ||
+            !parameters.TryGetProperty("fileName", out var fileName) || fileName.ValueKind != JsonValueKind.String ||
+            !UpdateService.PackageFileNamePattern.IsMatch(fileName.GetString() ?? "") ||
+            parameters.TryGetProperty("sha256Url", out var sha256) && sha256.ValueKind != JsonValueKind.String)
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        try
+        {
+            var urlValue = url.GetString()!;
+            var fileNameValue = fileName.GetString()!;
+            var sha256Value = parameters.TryGetProperty("sha256Url", out var hash) ? hash.GetString() : null;
+            RespondOk(source, id, await _sync.RunBackground(() => _updater.DownloadAsync(urlValue, fileNameValue, sha256Value)));
+        }
+        catch (ArgumentException ex) { RespondError(source, id, ProtocolErrors.InvalidRequest, ex.Message); }
+        catch (Exception ex)
+        {
+            Log.Error($"update.download 失败：{ex.Message}");
+            RespondError(source, id, ProtocolErrors.InternalError, ex.Message);
+        }
+    }
+
+    private async Task HandleUpdateApply(IHostClient source, string id, JsonElement parameters)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != 1 ||
+            !parameters.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(path.GetString()))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        try
+        {
+            var applied = await _sync.RunBackground(() => _updater.ApplyAsync(path.GetString()!));
+            RespondOk(source, id, applied);
+            // 便携替换脚本已启动：必须先发出应答再退出当前实例，否则前端收不到结果。
+            if (applied.Accepted && applied.Mode == UpdateService.PortableMode) _sync.Post(_updater.SignalExit);
+        }
+        catch (ArgumentException ex) { RespondError(source, id, ProtocolErrors.InvalidRequest, ex.Message); }
+        catch (Exception ex)
+        {
+            Log.Error($"update.apply 失败：{ex.Message}");
+            RespondError(source, id, ProtocolErrors.InternalError, ex.Message);
+        }
     }
 
     /// <summary>保存成功后向除来源外的所有页面广播 app.stateChanged（来源页面已通过 response 收到结果）。</summary>

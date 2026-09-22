@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { initialState } from '../src/data';
 
-async function loadDock(page: Page, reducedMotion = false, width = 640) {
+async function loadDock(page: Page, reducedMotion = false, width = 640, motionSpeed?: 'relaxed' | 'standard' | 'brisk') {
   const initial = structuredClone(initialState);
   initial.preferences.reducedMotion = reducedMotion;
   initial.preferences.width = width;
+  if (motionSpeed) (initial.preferences as any).motionSpeed = motionSpeed;
   if (width === 320) initial.projects = initial.projects.slice(0, 1);
   await page.addInitScript(({ initial }) => {
     const listeners: Array<(event: { data: unknown }) => void> = [];
@@ -76,7 +77,7 @@ test('entrance starts above the edge and waits for expanded layout before a cont
       return { y: m.m42, scaleX: m.m11, scaleY: m.m22, opacity: Number(getComputedStyle(el).opacity) };
     }) };
   });
-  expect(samples.duration).toBe(650);
+  expect(samples.duration).toBe(520);
   samples.frames.forEach((frame, i) => {
     expect(frame.scaleX).toBe(1); expect(frame.scaleY).toBe(1);
     expect(frame.opacity).toBe(1);
@@ -97,15 +98,15 @@ test('exit remains mounted, reverses at the current frame, and does not sync eve
   await page.evaluate(() => { (window as any).__motionCalls = []; (window as any).__motionShow(false); });
   await expect(wrap).toHaveClass(/dock-closing/);
   const before = await wrap.evaluate(el => {
-    const a = el.getAnimations()[0]; a.pause(); a.currentTime = 400;
-    const bottomAt400 = el.getBoundingClientRect().bottom;
+    const a = el.getAnimations()[0]; a.pause(); a.currentTime = 300;
+    const bottomAt300 = el.getBoundingClientRect().bottom;
     a.currentTime = 120;
     const style = getComputedStyle(el);
-    return { transform: style.transform, opacity: style.opacity, duration: a.effect!.getTiming().duration, bottomAt400 };
+    return { transform: style.transform, opacity: style.opacity, duration: a.effect!.getTiming().duration, bottomAt300 };
   });
-  expect(before.duration).toBe(600);
+  expect(before.duration).toBe(450);
   expect(Number(before.opacity)).toBe(1);
-  expect(before.bottomAt400).toBeGreaterThan(0);
+  expect(before.bottomAt300).toBeGreaterThan(0);
   await page.evaluate(() => (window as any).__motionShow(true));
   await expect(wrap).not.toHaveClass(/dock-closing/);
   const first = await wrap.evaluate(el => (el.getAnimations()[0].effect as KeyframeEffect).getKeyframes()[0]);
@@ -141,7 +142,7 @@ test('explicit software animation remains enabled when Windows requests reduced 
     state: el.getAnimations()[0].playState,
   }));
   expect(animation.reducedMedia).toBe(true);
-  expect(animation.duration).toBe(650);
+  expect(animation.duration).toBe(520);
   expect(animation.bottom).toBeLessThan(0);
   expect(animation.state).toBe('paused');
 });
@@ -178,4 +179,21 @@ test('a stack wider than the dock keeps its whole painted width inside the nativ
   await page.evaluate(() => (window as any).__motionShow(true));
   await expect(wrap).not.toHaveClass(/dock-closing/);
   expect((await coverageAt(0)).covers).toEqual([true, true]);
+});
+
+test('submenu leaves first and fast when collapsing with an open stack; relaxed gear restores the original pace', async ({ page }) => {
+  await loadDock(page, false, 640, 'relaxed');
+  await page.evaluate(() => (window as any).__motionShow(true));
+  const wrap = page.locator('.dock-wrap');
+  await expect(wrap).toBeVisible();
+  await expect.poll(() => wrap.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.getByRole('button', { name: '打开 品牌设计 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
+  await expect(page.locator('.stack-panel')).toBeVisible();
+  await page.evaluate(() => (window as any).__motionShow(false));
+  // The stack fades out while the dock bar has not started retracting yet.
+  await expect.poll(() => page.locator('.stack-panel.stack-leaving').count(), { intervals: [50, 50, 50, 50, 50, 50], timeout: 3000 }).toBe(1);
+  await expect(wrap).toHaveClass(/dock-closing/);
+  const exit = await wrap.evaluate(el => Number(el.getAnimations()[0].effect!.getTiming().duration));
+  expect(exit).toBe(600);
+  await expect(page.locator('.stack-panel')).toHaveCount(0);
 });

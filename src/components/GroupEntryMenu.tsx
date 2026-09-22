@@ -7,7 +7,7 @@ import { SplitFolderTile } from './SplitFolderTile';
 import { useMenuPan } from './useMenuPan';
 import { ContextMenu, type MenuAction } from './ContextMenu';
 
-export function GroupEntryMenu({ project, highlight, filter, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; filter?: string; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
+export function GroupEntryMenu({ project, highlight, filter, badgeForItem, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; filter?: string; badgeForItem?: (itemId: string) => string | undefined; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
   const pan = useMenuPan();
   const [context, setContext] = useState<{ x: number; y: number; actions: MenuAction[] } | null>(null);
   const visible = filter?.trim() ? project.items.filter(item => fuzzyIncludes(filter, item.name)) : project.items;
@@ -25,8 +25,8 @@ export function GroupEntryMenu({ project, highlight, filter, onOpen, onBrowse, e
             <ItemIcon projectId={project.id} itemId={item.id} pathKey={item.path} kind={item.kind} color={project.color} size={38}/><span><strong>{item.name}</strong><small>{item.kind === 'folder' ? '文件夹' : item.kind === 'app' ? '软件' : item.kind === 'url' ? '网站' : '文件'}</small></span>
           </button>
         </SplitFolderTile>
-        {!editing && renderAccessory?.(item)}
-        {editing && <><button className="shortcut-remove" aria-label={`移除快捷项 ${item.name}`} onClick={() => onRemove?.(item.id)}><X size={12}/></button><button className="shortcut-extract" aria-label={`将 ${item.name} 移到主面板`} onClick={() => onExtract?.(item.id)}><ArrowUpRight size={13}/></button></>}
+        {renderAccessory?.(item)}
+        {editing && <><button className="shortcut-remove" aria-label={`移除快捷项 ${item.name}`} onClick={() => onRemove?.(item.id)}><X size={12}/></button><button className="shortcut-extract" aria-label={`将 ${item.name} 移到主面板`} onClick={() => onExtract?.(item.id)}><ArrowUpRight size={13}/></button>{badgeForItem?.(item.id) && <span className="shortcut-badge">{badgeForItem(item.id)}</span>}</>}
       </div>)}
       {project.items.length > 0 && !visible.length && <p className="folder-browser-message">当前菜单没有匹配「{filter?.trim()}」的内容</p>}
     </div>
