@@ -1,4 +1,4 @@
-.favorite-button{position:absolute;right:0;top:0;width:23px;height:23px;display:grid;place-items:center;border-radius:8px;z-index:4;color:#486e56;background:#ecf6eac9;box-shadow:inset 0 1px 0 #fff9;touch-action:manipulation}
+.favorite-button{position:absolute;right:0;top:0;width:23px;height:23px;display:grid;place-items:center;padding:0;border-radius:8px;z-index:4;color:#486e56;background:#ecf6eac9;box-shadow:inset 0 1px 0 #fff9;touch-action:manipulation}
 .favorite-button:hover,.favorite-button:focus-visible{background:#fff;color:#416c32;outline:1px solid #82a078}
 .favorite-button.is-favorite{color:#77703b;background:#eeeac9e8}
 .dock-favorites{display:flex;align-items:center;gap:8px;align-self:stretch;flex-shrink:0;padding:0 8px;border-radius:13px;background:#41614a20;box-shadow:inset 0 1px 4px #344d3912}

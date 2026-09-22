@@ -87,6 +87,12 @@ test('main bar favorite star is compact while submenu stars keep their size', as
   const menuStar = (await page.locator('.folder-column .favorite-button').first().boundingBox())!;
   expect(dockStar.width).toBe(17);
   expect(menuStar.width).toBe(23);
+  for (const star of [page.locator('.dock-launchers .favorite-button').first(), page.locator('.folder-column .favorite-button').first()]) {
+    const box = (await star.boundingBox())!;
+    const glyph = (await star.locator('svg').boundingBox())!;
+    expect(Math.abs(box.x + box.width / 2 - (glyph.x + glyph.width / 2))).toBeLessThan(0.5);
+    expect(Math.abs(box.y + box.height / 2 - (glyph.y + glyph.height / 2))).toBeLessThan(0.5);
+  }
 });
 
 test('recents column has no in-column header and reports its name and refresh to the panel header', async ({ page }) => {
