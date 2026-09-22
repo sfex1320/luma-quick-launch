@@ -231,7 +231,7 @@ try {
   const close = dock.getByRole('button', { name: '关闭堆叠', exact: true });
   const refreshBox = await refresh.boundingBox(), closeBox = await close.boundingBox();
   expect(Math.abs(refreshBox.y - closeBox.y)).toBeLessThan(2); expect(refreshBox.x).toBeLessThan(closeBox.x);
-  await expect(dock.locator('[data-folder-level="0"] .folder-browser-path')).toHaveCount(0);
+  await expect(dock.locator('[data-folder-level="0"] .folder-browser-path')).toContainText('目录夹具');
   evidence.geometry = geometry; await screenshot(dock, 'root-grid'); check('real fixture shows four 88×94 tiles per row, two visible rows, and refresh before close');
   const rootListingCount = (await listings(dock)).length; await click(refresh);
   await expect.poll(async () => (await listings(dock)).length).toBe(rootListingCount + 1);
