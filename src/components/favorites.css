@@ -11,3 +11,12 @@
 :root[data-theme="dark"] .favorite-button.is-favorite{color:#ece5ac;background:#424431}
 :root[data-theme="dark"] .dock-favorites{background:#0a1a164f}
 :root[data-theme="dark"] .dock-favorite-divider{background:#b7cabb50}
+
+/* Round 16: compact star on the dense main dock bar; submenu tiles keep the original size. */
+.dock-launchers .favorite-button{width:17px;height:17px;border-radius:6px}
+.dock-launchers .favorite-button svg{width:10px;height:10px}
+.stack-filter{flex:none;width:132px;margin-left:8px;border:1px solid #87a58455;border-radius:8px;padding:4px 8px;font-size:11px;line-height:16px;background:#ffffff70;color:var(--ink)}
+.stack-filter:focus{outline:1px solid #82a078;background:#fff}
+.stack-current-name{font-size:12px;font-weight:550;color:var(--ink-soft);max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
+:root[data-theme="dark"] .stack-filter{background:#1d2620aa;color:var(--ink)}
+:root[data-theme="dark"] .stack-filter:focus{background:#131a15}

@@ -1,0 +1,102 @@
+import { test, expect, type Page } from '@playwright/test';
+import { defaults } from '../src/data';
+
+async function setup(page: Page, options: { grouped?: boolean } = {}) {
+  await page.addInitScript(({ preferences, grouped }) => {
+    const host = window as any, listeners: Array<(event: any) => void> = [];
+    host.__calls = [];
+    host.chrome ||= {};
+    host.chrome.webview = { addEventListener: (_: string, callback: any) => listeners.push(callback), postMessage: (req: any) => {
+      host.__calls.push(req);
+      const respond = (result: unknown) => listeners.forEach(callback => callback({ data: { protocol: 1, type: 'response', id: req.id, ok: true, result } }));
+      if (req.method === 'app.getState') {
+        const items: Array<Record<string, unknown>> = [{ id: 'root', name: '目录布局', path: 'C:\\Fixture', kind: 'folder' }];
+        if (grouped) items.push({ id: 'app', name: '编辑器', path: 'C:\\Tools\\editor.exe', kind: 'app' });
+        setTimeout(() => respond({ schemaVersion: 1, revision: 1, preferences, projects: [{ id: 'project', name: '目录布局', description: '', color: 'mint', pinned: true, items }] }), 2);
+        setTimeout(() => listeners.forEach(callback => callback({ data: { protocol: 1, type: 'event', event: 'window.visibility', data: { visible: true, visibilityId: 1 } } })), 80); return;
+      }
+      if (req.method === 'folder.list') {
+        const child = !!req.params.folderId;
+        setTimeout(() => respond({ folderId: child ? 'child-token' : 'root-token', name: child ? '子目录' : '目录布局', parentId: child ? 'root-token' : null, truncated: false, entries: child ? [{ id: 'nested', name: '内部.txt', kind: 'file' }] : [{ id: 'child', name: '子目录', kind: 'folder' }, ...Array.from({ length: 16 }, (_, i) => ({ id: `file-${i + 1}`, name: `文件${i + 1}.txt`, kind: 'file' }))] }), 5); return;
+      }
+      if (req.method === 'shell.getRecent') { setTimeout(() => respond({ entries: [{ id: 'r1', name: '近期设计.psd', path: 'C:\\Fixture\\近期设计.psd', kind: 'file' }], note: 'Windows 最近项目' }), 5); return; }
+      setTimeout(() => respond(req.method === 'window.sync' ? { applied: true } : req.method === 'project.detectTest' ? { task: null } : req.method === 'shell.getIcon' || req.method === 'folder.getThumbnail' ? { dataUrl: null } : { accepted: true }), 2);
+    } };
+  }, { preferences: defaults, grouped: !!options.grouped });
+  await page.goto('/?view=dock&mode=native');
+  await expect(page.locator('.dock')).toBeVisible();
+  await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
+  await page.getByRole('button', { name: '打开 目录布局 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
+  await expect(page.locator('.stack-panel')).toBeVisible();
+}
+const calls = (page: Page, method: string) => page.evaluate(method => (window as any).__calls.filter((entry: any) => entry.method === method), method);
+
+test('menu filter hides non-matching tiles with fuzzy matching and escape clears before closing', async ({ page }) => {
+  await setup(page);
+  await expect(page.locator('.directory-row')).toHaveCount(17);
+  const filter = page.getByLabel('筛选当前菜单', { exact: true });
+  await filter.fill('件2');
+  await expect(page.locator('.directory-row')).toHaveCount(2);
+  await expect(page.locator('.directory-row .stack-item').first()).toContainText('文件2.txt');
+  await filter.fill('文4');
+  await expect(page.locator('.directory-row')).toHaveCount(2);
+  await filter.press('Escape');
+  await expect(page.locator('.directory-row')).toHaveCount(17);
+  await expect(page.locator('.stack-panel')).toBeVisible();
+  await filter.press('Escape');
+  await expect(page.locator('.stack-panel')).toHaveCount(0);
+});
+
+test('group entries filter by fuzzy name', async ({ page }) => {
+  await setup(page, { grouped: true });
+  await expect(page.locator('.group-entry-row')).toHaveCount(2);
+  await page.getByLabel('筛选当前菜单', { exact: true }).fill('编辑');
+  await expect(page.locator('.group-entry-row')).toHaveCount(1);
+  await expect(page.locator('.group-entry-row .stack-item')).toContainText('编辑器');
+});
+
+test('right drag pans the grid and suppresses the menu; a stationary right click opens it', async ({ page }) => {
+  await setup(page);
+  const grid = page.locator('.directory-items').first();
+  const before = await grid.evaluate(el => el.scrollTop);
+  const box = (await grid.boundingBox())!;
+  await page.mouse.move(box.x + 200, box.y + 170);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(box.x + 200, box.y + 60, { steps: 5 });
+  await page.mouse.up({ button: 'right' });
+  expect(await grid.evaluate(el => el.scrollTop)).toBeGreaterThan(before);
+  await expect(page.locator('.luma-context-menu')).toHaveCount(0);
+  await page.waitForTimeout(600);
+  await page.locator('.stack-item[data-item-id="file-1"]').click({ button: 'right' });
+  await expect(page.locator('.luma-context-menu')).toBeVisible();
+});
+
+test('panel header shows the current directory name and back walks up', async ({ page }) => {
+  await setup(page);
+  await expect(page.locator('.stack-current-name')).toHaveText('目录布局');
+  await page.locator('.stack-item[data-item-id="child"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '进入', exact: true }).click();
+  await expect(page.locator('.stack-current-name')).toHaveText('子目录');
+  await page.getByRole('button', { name: '返回上一层', exact: true }).click();
+  await expect(page.locator('.stack-current-name')).toHaveText('目录布局');
+});
+
+test('main bar favorite star is compact while submenu stars keep their size', async ({ page }) => {
+  await setup(page);
+  const dockStar = (await page.locator('.dock-launchers .favorite-button').first().boundingBox())!;
+  const menuStar = (await page.locator('.folder-column .favorite-button').first().boundingBox())!;
+  expect(dockStar.width).toBe(17);
+  expect(menuStar.width).toBe(23);
+});
+
+test('recents column has no in-column header and reports its name and refresh to the panel header', async ({ page }) => {
+  await setup(page, { grouped: true });
+  await page.locator('.group-column .stack-item[data-item-id="app"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '最近项目', exact: true }).click();
+  await expect(page.locator('.recent-row')).toHaveCount(1);
+  await expect(page.locator('.stack-body-cascade .folder-browser-path')).toHaveCount(0);
+  await expect(page.locator('.stack-current-name')).toHaveText('最近项目 · 编辑器');
+  const before = (await calls(page, 'shell.getRecent')).length;
+  await page.getByRole('button', { name: '刷新目录', exact: true }).click();
+  await expect.poll(() => calls(page, 'shell.getRecent')).toHaveLength(before + 1);
+});

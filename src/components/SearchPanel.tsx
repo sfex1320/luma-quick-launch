@@ -9,7 +9,7 @@ const scopes: { id: SearchScope; title: string }[] = [
 ];
 export function SearchPanel() {
   const [query, setQuery] = useState(''), [scope, setScope] = useState<SearchScope>('all');
-  const [appAliases, setAppAliases] = useState(true), [fuzzyNames, setFuzzyNames] = useState(false);
+  const [appAliases, setAppAliases] = useState(true), [fuzzyNames, setFuzzyNames] = useState(true);
   const [results, setResults] = useState<SearchResult[]>([]), [note, setNote] = useState(''), [error, setError] = useState('');
   const [loading, setLoading] = useState(true), [opening, setOpening] = useState(false), [selected, setSelected] = useState(0), [version, setVersion] = useState(0);
   const input = useRef<HTMLInputElement>(null), resultList = useRef<HTMLDivElement>(null), openingRef = useRef(false);

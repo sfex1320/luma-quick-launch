@@ -1,18 +1,19 @@
 import { useState, type ReactNode, type PointerEvent } from 'react';
-import { FolderOpen, Layers3, X, ArrowUpRight } from 'lucide-react';
+import { FolderOpen, X, ArrowUpRight } from 'lucide-react';
 import type { LaunchItem, Project } from '../contracts';
+import { fuzzyIncludes } from '../core/searchMatch';
 import { ItemIcon } from './ItemIcon';
 import { SplitFolderTile } from './SplitFolderTile';
-import { useBlankPan } from './useBlankPan';
+import { useMenuPan } from './useMenuPan';
 import { ContextMenu, type MenuAction } from './ContextMenu';
 
-export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, withTitle = false, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; withTitle?: boolean; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
-  const pan = useBlankPan();
+export function GroupEntryMenu({ project, highlight, filter, onOpen, onBrowse, editing, onRemove, onExtract, onMoveItem, onUngroup, renderAccessory, ...gesture }: { renderAccessory?: (item: LaunchItem) => ReactNode; filter?: string; project: Project; highlight: string | null; onOpen: (item: LaunchItem) => void; onBrowse: (item: LaunchItem) => void; editing?: boolean; onRemove?: (itemId: string) => void; onExtract?: (itemId: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; onUngroup?: () => void; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent) => void; onPointerUp: (event: PointerEvent) => void; onPointerCancel: () => void }) {
+  const pan = useMenuPan();
   const [context, setContext] = useState<{ x: number; y: number; actions: MenuAction[] } | null>(null);
+  const visible = filter?.trim() ? project.items.filter(item => fuzzyIncludes(filter, item.name)) : project.items;
   return <div className="folder-column group-column" data-drop-project={project.id} aria-label={`${project.name} 组内入口`} onDragOver={event => { if (editing && event.dataTransfer.types.includes('application/x-luma-entry')) { event.preventDefault(); event.stopPropagation(); } }} onDrop={event => { if (!editing || !event.dataTransfer.types.includes('application/x-luma-entry')) return; event.preventDefault(); event.stopPropagation(); try { const data = JSON.parse(event.dataTransfer.getData('application/x-luma-entry')); onMoveItem?.(data.projectId, data.itemId, project.id); } catch { /* Ignore malformed external drag payloads. */ } }}>
-    {withTitle && <div className="folder-browser-path group-column-path"><Layers3 size={16}/><strong title={project.name}>{project.name}</strong></div>}
     <div className="stack-items launch-grid" {...pan}>
-      {project.items.map(item => <div className="group-entry-row" key={item.id} onContextMenu={event => { event.preventDefault(); gesture.onPointerCancel(); setContext({ x: event.clientX, y: event.clientY, actions: [
+      {visible.map(item => <div className="group-entry-row" key={item.id} onContextMenu={event => { event.preventDefault(); gesture.onPointerCancel(); setContext({ x: event.clientX, y: event.clientY, actions: [
         { label: '打开', action: () => onOpen(item) },
         ...(['folder','app'].includes(item.kind) ? [{ label: item.kind === 'app' ? '最近项目' : '进入子菜单', action: () => onBrowse(item) }] : []),
         { label: '复制地址', action: () => { void navigator.clipboard.writeText(item.path); } },
@@ -27,6 +28,7 @@ export function GroupEntryMenu({ project, highlight, onOpen, onBrowse, editing, 
         {!editing && renderAccessory?.(item)}
         {editing && <><button className="shortcut-remove" aria-label={`移除快捷项 ${item.name}`} onClick={() => onRemove?.(item.id)}><X size={12}/></button><button className="shortcut-extract" aria-label={`将 ${item.name} 移到主面板`} onClick={() => onExtract?.(item.id)}><ArrowUpRight size={13}/></button></>}
       </div>)}
+      {project.items.length > 0 && !visible.length && <p className="folder-browser-message">当前菜单没有匹配「{filter?.trim()}」的内容</p>}
     </div>
     <footer><button data-item-id={project.items[0].id} data-project-id={project.id} className="text-button directory-open-current" {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(project.items[0]); }}><FolderOpen size={14}/>打开默认入口</button>{project.items.length > 1 && <button className="text-button directory-open-current" onClick={onUngroup}>拆成独立图标</button>}</footer>
     {context && <ContextMenu {...context} onClose={() => setContext(null)}/>}

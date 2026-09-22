@@ -105,7 +105,7 @@ test('left blank grab pans group, every retained directory level, and recent lis
   await project(page, '单软件').press('ArrowDown'); await grab(page, page.locator('.recent-list'));
 });
 
-test('blank grab releases on blur, lost capture and cancellation; right drag keeps directory context menu', async ({ page }) => {
+test('blank grab releases on blur, lost capture and cancellation; right drag pans and suppresses the directory context menu', async ({ page }) => {
   await setup(page); await project(page, '目录').press('ArrowDown');
   const list = page.locator('.directory-items'); await expect(list).toBeVisible();
   for (const event of ['blur', 'pointercancel', 'lostpointercapture']) {
@@ -123,8 +123,8 @@ test('blank grab releases on blur, lost capture and cancellation; right drag kee
   await list.evaluate(node => { node.scrollTop = 0; });
   const p = await blankPoint(list); await page.mouse.move(p.x, p.y); await page.mouse.down({ button: 'right' });
   await page.mouse.move(p.x, p.y - 70); await page.mouse.up({ button: 'right' });
-  expect(await list.evaluate(node => node.scrollTop)).toBe(0);
-  await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible();
+  expect(await list.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByRole('menu', { name: '快捷操作' })).toHaveCount(0);
   expect(await opens(page)).toHaveLength(0);
 });
 

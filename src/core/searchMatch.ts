@@ -1,4 +1,15 @@
 const aliases: Record<string, string> = { ai: 'illustrator', ps: 'photoshop', ae: 'afterfx', pr: 'premiere', id: 'indesign', cdr: 'coreldrw' };
+/** Loose matching for menus and saved entries: every whitespace-separated word either
+    appears literally or matches as an ordered subsequence (fzf-style). */
+export function fuzzyIncludes(query: string, text: string) {
+  const value = text.toLowerCase();
+  return query.toLowerCase().trim().split(/\s+/).every(word => {
+    if (!word || value.includes(word)) return true;
+    let index = 0;
+    for (const char of value) if (char === word[index] && ++index === word.length) return true;
+    return false;
+  });
+}
 export function shortcutMatches(query: string, name: string, path: string, kind: string, appAliases = true, fuzzyNames = false) {
   const q = query.toLowerCase().trim(), text = `${name} ${path}`.toLowerCase();
   if (text.includes(q)) return true;

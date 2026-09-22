@@ -34,7 +34,7 @@ const calls = (page: Page, method: string) => page.evaluate(method => (window as
 
 test('root header is not repeated and refresh sits before close in the stack header', async ({ page }) => {
   await setup(page);
-  await expect(page.locator('[data-folder-level="0"] .folder-browser-path')).toContainText('目录布局');
+  await expect(page.locator('.stack-body-cascade .folder-browser-path')).toHaveCount(0);
   const refresh = page.locator('.stack-panel>header').getByRole('button', { name: '刷新目录', exact: true });
   await expect(refresh).toBeVisible();
   const refreshBox = (await refresh.boundingBox())!, closeBox = (await page.getByRole('button', { name: '关闭堆叠', exact: true }).boundingBox())!;
@@ -58,8 +58,8 @@ test('session trail restores by fresh parent tokens and header refresh targets t
   await expect(page.locator('[data-folder-level="1"] .stack-item')).toBeVisible();
   const restored = await calls(page, 'folder.list');
   expect(restored.at(-1).params).toEqual({ projectId: 'project', itemId: 'root', folderId: 'entry-0-r1' });
-  await expect(page.locator('[data-folder-level="0"] .folder-browser-path')).toContainText('目录布局');
-  await expect(page.locator('[data-folder-level="1"] .folder-browser-path')).toContainText('子目录');
+  await expect(page.locator('.stack-body-cascade .folder-browser-path')).toHaveCount(0);
+  await expect(page.locator('.stack-current-name')).toHaveText('子目录');
   await expect(page.getByRole('button', { name: '刷新目录', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: '刷新目录', exact: true }).click();
   await expect.poll(async () => (await calls(page, 'folder.list')).length).toBe(restored.length + 1);
@@ -126,9 +126,7 @@ test('scaled native-height viewport retains eight complete tiles in root and chi
   await page.getByRole('menuitem', { name: '进入', exact: true }).click();
   await expect(page.locator('[data-folder-level="1"] .directory-row')).toHaveCount(17);
   await verify(0); await verify(1);
-  const headerY = async (level: number) => (await page.locator(`[data-folder-level="${level}"] .folder-browser-path`).boundingBox())!.y;
   const gridY = async (level: number) => (await page.locator(`[data-folder-level="${level}"] .directory-items`).boundingBox())!.y;
-  expect(Math.abs(await headerY(0) - await headerY(1))).toBeLessThan(1);
   expect(Math.abs(await gridY(0) - await gridY(1))).toBeLessThan(1);
   const panel = (await page.locator('.stack-panel').boundingBox())!;
   expect(panel.y + panel.height).toBeLessThanOrEqual(508);

@@ -129,13 +129,16 @@ test('a group entry can be dragged out and then dragged into another group witho
   expect(await page.evaluate(() => (window as any).__state().projects.find((p: any) => p.id === 'docs').items.find((i: any) => i.id === 'ps').path)).toBe('C:\\Adobe\\Photoshop.exe');
 });
 
-test('directory right-drag no longer pans and preserves the context menu', async ({ page }) => {
+test('directory right-drag pans vertically and suppresses the context menu until a stationary click', async ({ page }) => {
   await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '打开 资料 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const list = page.locator('.directory-items'); await expect(list).toBeVisible();
   await expect.poll(() => page.locator('.dock-wrap').evaluate(node => node.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
   const box = await list.boundingBox();
   await page.mouse.move(box!.x + 40, box!.y + box!.height - 8); await page.mouse.down({ button: 'right' });
   await page.mouse.move(box!.x + 40, box!.y + 8, { steps: 4 }); await page.mouse.up({ button: 'right' });
-  expect(await list.evaluate(node => node.scrollTop)).toBe(0);
+  expect(await list.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByRole('menu', { name: '快捷操作' })).toHaveCount(0);
+  await page.waitForTimeout(600);
+  await page.locator('.stack-item[data-item-id="f1"]').click({ button: 'right' });
   await expect(page.getByRole('menu', { name: '快捷操作' })).toBeVisible();
 });

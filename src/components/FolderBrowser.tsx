@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { ArrowLeft, FolderOpen, Terminal } from 'lucide-react';
+import { FolderOpen, Terminal } from 'lucide-react';
 import type { Color, FolderEntry, FolderListing, LaunchItem, ProjectTestTask } from '../contracts';
 import { request } from '../bridge';
+import { fuzzyIncludes } from '../core/searchMatch';
 import { FolderEntryIcon } from './FolderEntryIcon';
 import { SplitFolderTile } from './SplitFolderTile';
 import { clearFolderThumbnails } from './folder-thumbnail-cache';
 import './folder-browser.css';
-import { useBlankPan } from './useBlankPan';
+import { useMenuPan } from './useMenuPan';
 import { DirectoryActionButtons, DirectoryActions, useDirectoryActions } from './DirectoryActions';
 
-export type FolderHeaderControls = { loading: boolean; disabled: boolean; refresh: () => void; back?: () => void };
+export type FolderHeaderControls = { name: string; loading: boolean; disabled: boolean; refresh: () => void; back?: () => void };
 interface Props {
   projectId: string; item: LaunchItem; color: Color; highlight: string | null;
+  filter: string;
   onOpen: (entryId: string) => void; onBackToGroup?: () => void; onNavigate?: () => void; leadingColumns?: number;
   onRunTest: (taskId: string) => void; runningTest: boolean;
   onHeaderChange?: (controls: FolderHeaderControls | null) => void;
@@ -87,7 +89,7 @@ export function FolderBrowser(props: Props) {
   </div>{limit && <p className="directory-limit" role="status">{limit}</p>}</>;
 }
 
-function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runningTest, level, index, trail, isCurrent, onListing, onLoadError, onEnter, onBack, actions, onHeaderChange, renderEntryAccessory, initialTrail: _trail, onTrailChange: _trailChange, onBackToGroup: _back, onNavigate: _navigate, leadingColumns: _leading, ...gesture }: Props & { level: Level; index: number; trail: string[]; isCurrent: boolean; onListing: (listing: FolderListing | null) => void; onLoadError: () => void; onEnter: (id: string, name: string) => void; onBack?: () => void; actions: ReturnType<typeof useDirectoryActions> }) {
+function FolderPane({ projectId, item, color, highlight, filter, onOpen, onRunTest, runningTest, level, index, trail, isCurrent, onListing, onLoadError, onEnter, onBack, actions, onHeaderChange, renderEntryAccessory, initialTrail: _trail, onTrailChange: _trailChange, onBackToGroup: _back, onNavigate: _navigate, leadingColumns: _leading, ...gesture }: Props & { level: Level; index: number; trail: string[]; isCurrent: boolean; onListing: (listing: FolderListing | null) => void; onLoadError: () => void; onEnter: (id: string, name: string) => void; onBack?: () => void; actions: ReturnType<typeof useDirectoryActions> }) {
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [reload, setReload] = useState(0);
   const [testTask, setTestTask] = useState<ProjectTestTask | null>(null), [testError, setTestError] = useState('');
@@ -98,12 +100,12 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
     callbacks.current.cancel(); clearFolderThumbnails(); setReload(value => value + 1);
   }, []);
   const back = useCallback(() => callbacks.current.onBack?.(), []);
-  const hasHeaderBack = index === 0 && !!onBack;
+  const hasHeaderBack = !!onBack;
   useEffect(() => {
     if (!isCurrent) return;
-    callbacks.current.onHeaderChange?.({ loading, disabled: loading || actions.running, refresh, ...(hasHeaderBack ? { back } : {}) });
+    callbacks.current.onHeaderChange?.({ name: listing?.name ?? level.name, loading, disabled: loading || actions.running, refresh, ...(hasHeaderBack ? { back } : {}) });
     return () => callbacks.current.onHeaderChange?.(null);
-  }, [isCurrent, loading, actions.running, refresh, hasHeaderBack, back]);
+  }, [isCurrent, loading, actions.running, refresh, hasHeaderBack, back, listing?.name, level.name]);
   useEffect(() => {
     let alive = true; setLoading(true); setError(''); setListing(null); report.current(null);
     request('folder.list', { projectId, itemId: item.id, ...(level.folderId ? { folderId: level.folderId } : {}) })
@@ -117,18 +119,15 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
       .then(result => { if (alive) setTestTask(result.task); }).catch(reason => { if (alive) setTestError((reason as Error).message); });
     return () => { alive = false; };
   }, [listing, projectId, item.id, item.launch]);
-  const pan = useBlankPan();
+  const pan = useMenuPan();
+  const visibleEntries = listing && filter.trim() ? listing.entries.filter(entry => fuzzyIncludes(filter, entry.name)) : listing?.entries ?? [];
   return <div className="folder-browser folder-column" data-folder-level={index} aria-label={`${listing?.name ?? level.name} 目录层`}
     onContextMenu={event => { if (listing) actions.openContext(event, listing); }}>
-    <div className="folder-browser-path">
-      {index > 0 && onBack && <button className="icon-button" aria-label="返回上一层" onClick={onBack}><ArrowLeft size={16}/></button>}
-      <FolderOpen size={16}/><strong title={listing?.name ?? level.name}>{listing?.name ?? level.name}</strong>
-    </div>
     {loading && <p className="folder-browser-message" role="status">正在读取目录…</p>}
     {error && <div className="folder-browser-message" role="alert"><p>{error}</p><button className="text-button" onClick={() => setReload(n => n + 1)}>重新读取</button></div>}
     {listing && <>
       <div className="stack-items directory-items launch-grid" aria-label={`${listing.name} 目录内容`} {...pan}>
-        {listing.entries.map(entry => {
+        {visibleEntries.map(entry => {
           const button = <button data-item-id={entry.id} data-project-id={projectId} data-folder-item-id={item.id} className={`stack-item ${highlight === entry.id ? 'selected' : ''}`} title={entry.name}
             {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(entry.id); }}>
             <FolderEntryIcon projectId={projectId} itemId={item.id} entry={entry} color={color}/><span><strong>{entry.name}</strong><small>{entry.kind === 'folder' ? '文件夹' : entry.kind === 'app' ? '软件 / 快捷方式' : '文件'}</small></span>
@@ -137,6 +136,7 @@ function FolderPane({ projectId, item, color, highlight, onOpen, onRunTest, runn
             onContextMenu={event => actions.openContext(event, listing, entry, entry.kind === 'folder' ? () => onEnter(entry.id, entry.name) : undefined)}>{entry.kind === 'folder' ? <SplitFolderTile name={entry.name} projectId={projectId} entryId={entry.id} folderItemId={item.id} onOpen={() => onOpen(entry.id)} onEnter={() => onEnter(entry.id, entry.name)} gesture={gesture}>{button}</SplitFolderTile> : button}{renderEntryAccessory?.(entry, listing, trail)}</div>;
         })}
         {!listing.entries.length && <p className="folder-browser-message">此目录为空</p>}
+        {listing.entries.length > 0 && !visibleEntries.length && <p className="folder-browser-message">当前菜单没有匹配「{filter.trim()}」的内容</p>}
       </div>
       {listing.truncated && <p className="directory-limit">当前显示前 200 项，可打开目录查看全部内容。</p>}
       <footer className="directory-footer"><div className="directory-footer-actions">

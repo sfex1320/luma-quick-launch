@@ -107,8 +107,10 @@ try {
   await dock.locator('.dock-project').filter({hasText:'原生验证项目'}).press('ArrowDown');
   await expect(dock.getByRole('region',{name:'原生验证项目 文件夹堆叠'})).toBeVisible();
   await dock.locator('[data-item-id="assets"]').click();
+  // Sample from the click itself: the toast-bearing region only lives for the ~600ms exit
+  // animation, and Explorer-open latency decides when the toast renders on a loaded machine.
+  await expect.poll(()=>inspect().find(w=>w.Title==='Luma Dock')?.Region.Bottom ?? 0,{timeout:10000}).toBeGreaterThan(500);
   await expect(dock.getByRole('status')).toContainText('已请求打开');
-  await expect.poll(()=>inspect().find(w=>w.Title==='Luma Dock')?.Region.Bottom).toBeGreaterThan(500);
   check('原生启动反馈包含在实际窗口可见区域');
   const logPath=path.join(data,'logs',`host-${new Date().toLocaleDateString('sv-SE').replaceAll('-','')}.log`);
   await expect.poll(async()=>(await readFile(logPath,'utf8')).includes('shell.openItem 启动 project=smoke item=assets')).toBe(true);
