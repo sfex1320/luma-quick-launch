@@ -41,7 +41,7 @@ async function attachHost(page: Page, seed = initial, listing = root) {
 }
 
 const projectButton = (page: Page, name: string) => page.getByRole('button', { name: `打开 ${name} 主目录，长按展开堆叠`, exact: true });
-async function center(target: Locator) { const box = await target.boundingBox(); expect(box).not.toBeNull(); return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }; }
+async function center(target: Locator) { await expect.poll(() => target.evaluate(el => el.closest('.stack-panel')?.getAnimations().every(a => a.playState === 'finished') ?? true)).toBe(true); const box = await target.boundingBox(); expect(box).not.toBeNull(); return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }; }
 async function hold(page: Page, target: Locator) { const point = await center(target); await page.mouse.move(point.x, point.y); await page.mouse.down(); }
 async function calls(page: Page, method: string) { return page.evaluate(method => (window as any).__calls.filter((call: any) => call.method === method), method); }
 

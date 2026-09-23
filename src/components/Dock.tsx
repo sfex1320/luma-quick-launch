@@ -80,12 +80,12 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
   const showStack = (id: string | null) => { menuGeneration.current++; const project = projects.find(project => project.id === id); setFilter(''); setBrowseItemId(project ? remember(project).browse : null); setMenuError(''); setStack(id); setMore(false); };
   const selectBrowse = (id: string | null) => { if (active) remember(active).browse = id; setFilter(''); setBrowseItemId(id); };
   const collapseAfterLaunch = () => { preserve(); setVisible(false); };
-  // Exit layering: the wrap slides out at gear pace while open panels slide up faster.
+  // Primary and submenu surfaces move independently, in that order.
   const motionDurations = DOCK_SPEEDS[p.motionSpeed ?? 'standard'];
   const preserve = () => { menuGeneration.current++; clearPress(); clearGroupDrag(); setMenuError(''); setMore(false); };
   const toggle = (project: Project, items = project.items, name = project.name) => { clearPress(); onFavorite?.(name, project.color, items); };
   useEffect(() => { if (stack && !active) close(); }, [active, stack]);
-  const { present, wrap, getTranslationY, resumeEntrance } = useDockMotion({ visible, reducedMotion: p.reducedMotion, waitForLayout: overlay && nativeMode, durations: motionDurations, onExited: preserve });
+  const { present, wrap, getTranslationY, resumeEntrance } = useDockMotion({ visible, reducedMotion: p.reducedMotion, waitForLayout: overlay && nativeMode, durations: motionDurations, menuKey: `${stack}:${more}`, onExited: preserve });
   useLayoutEffect(() => {
     const element = dock.current;
     const fromWidth = previousDockWidth.current;
@@ -139,10 +139,10 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     let previous = '';
     let disposed = false;
     const sync = () => {
-      const rects = [...document.querySelectorAll<HTMLElement>('[data-native-hit]')].map(el => { const r = el.getBoundingClientRect(); const y = r.y - (wrap.current?.contains(el) ? getTranslationY() : 0); return { x: r.x, y, width: r.width, height: r.height }; });
+      const rects = [...document.querySelectorAll<HTMLElement>('[data-native-hit]')].map(el => { const r = el.getBoundingClientRect(); const y = r.y - getTranslationY(el); return { x: r.x, y, width: r.width, height: r.height }; });
       // Reserve the upward path once, including reversals with an open, wider stack.
-      if (present && wrap.current) for (const el of wrap.current.querySelectorAll<HTMLElement>('[data-native-hit]')) {
-        const r = el.getBoundingClientRect(); const bottom = r.bottom - getTranslationY();
+      if (present && wrap.current) for (const el of wrap.current.parentElement!.querySelectorAll<HTMLElement>('[data-native-hit]')) {
+        const r = el.getBoundingClientRect(); const bottom = r.bottom - getTranslationY(el);
         rects.push({ x: r.x, y: 0, width: r.width, height: Math.max(0, bottom) });
       }
       const widthSweep = widthAnimation.current;
@@ -295,7 +295,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
           {editing && <button className="shortcut-remove" aria-label={`移除快捷项 ${project.name}`} title="仅移除快捷引用" onClick={() => onRemove?.(project.id)}><X size={12}/></button>}
         </div>;
   return <div ref={container} tabIndex={-1} aria-label="Luma 快捷面板" className={`dock-container ${overlay ? 'overlay-dock' : ''} ${dragging ? 'drop-active' : ''}`}
-    onPointerDownCapture={event => { if (!visible && (event.target as Element).closest('.dock-wrap')) { event.preventDefault(); event.stopPropagation(); return; } if (event.button === 0 && !(event.target as Element).closest('button,input,textarea,select,[contenteditable]')) container.current?.focus({ preventScroll: true }); setKeyboard(false); }}
+    onPointerDownCapture={event => { if (!visible && (event.target as Element).closest('.dock-stage')) { event.preventDefault(); event.stopPropagation(); return; } if (event.button === 0 && !(event.target as Element).closest('button,input,textarea,select,[contenteditable]')) container.current?.focus({ preventScroll: true }); setKeyboard(false); }}
     onKeyDownCapture={event => { if (event.key !== 'Escape') { setKeyboard(true); clearTimeout(hideTimer.current); } }}
     onFocusCapture={event => { if (event.target.matches(':focus-visible')) { setKeyboard(true); clearTimeout(hideTimer.current); } }}
     onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboard(false); }}
@@ -305,7 +305,8 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     <div className="dock-hotzone" onPointerEnter={() => { clearTimeout(hideTimer.current); if (overlay && nativeMode) return; clearTimeout(showTimer.current); showTimer.current = setTimeout(() => setVisible(true), 180); }} onPointerLeave={() => clearTimeout(showTimer.current)}>
       <button data-native-hit aria-label={visible ? '收起面板' : '展开面板'} className="dock-handle" onClick={() => { clearTimeout(showTimer.current); clearTimeout(hideTimer.current); preserve(); setVisible(!visible); }}/>
     </div>
-    {present && <div ref={wrap} className={`dock-wrap ${visible ? '' : 'dock-closing'}`} onPointerEnter={() => { setPointerInside(true); clearTimeout(hideTimer.current); }} onPointerMove={event => { if (!(overlay && nativeMode) && !visible && (event.movementX || event.movementY)) setVisible(true); }} onPointerLeave={() => { setPointerInside(false); if (!(overlay && nativeMode) && p.autoHide && !press.current && !dragging && !importing && !runningTest && !directoryBusy && !contextOpen && !context && !keyboard && !editing) hideTimer.current = setTimeout(() => setVisible(false), 650); }}>
+    {present && <div className="dock-stage" onPointerEnter={() => { setPointerInside(true); clearTimeout(hideTimer.current); }} onPointerMove={event => { if (!(overlay && nativeMode) && !visible && (event.movementX || event.movementY)) setVisible(true); }} onPointerLeave={() => { setPointerInside(false); if (!(overlay && nativeMode) && p.autoHide && !press.current && !dragging && !importing && !runningTest && !directoryBusy && !contextOpen && !context && !keyboard && !editing) hideTimer.current = setTimeout(() => setVisible(false), 650); }}>
+      <div ref={wrap} className={`dock-wrap ${visible ? '' : 'dock-closing'}`}>
       <nav ref={dock} aria-label="快捷启动面板" data-native-hit className={`dock glass material-${p.material} ${editing ? 'dock-editing' : ''}`} style={{ width: layout.width, height: layout.height, borderRadius: p.radius, transformOrigin: 'center top', '--dock-icon': `${layout.icon}px`, '--dock-font': `${layout.font}px` } as CSSProperties}>
         <div className={`dock-launchers ${overflow ? 'has-overflow' : ''}`} {...pan} onWheel={event => { if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) event.currentTarget.scrollLeft += event.deltaY || event.deltaX; }}
           onDragOver={event => { if (editing && event.dataTransfer.types.includes('application/x-luma-entry')) { event.preventDefault(); event.stopPropagation(); } }}
@@ -322,6 +323,8 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
       </nav>
       {editing && <div data-native-hit className="dock-edit-hint">把图标拖到另一个图标上成组 · 完成整理后恢复快捷启动</div>}
       {dragging && <div data-native-hit className="dock-drop-hint">松手添加快捷项 · 拖到已有图标可加入堆叠</div>}
+      </div>
+      <div className="dock-submenu-clip">
       {active && <section aria-label={`${active.name} 文件夹堆叠`} data-native-hit className={`stack-panel glass material-${p.material}${!visible ? ' stack-leaving' : ''}${editing ? ' panel-editing' : ''}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 40}px)`, maxHeight: `calc(100vh - ${layout.height + 40}px)`, '--stack-out-ms': `${motionDurations.stack}ms`, '--stack-in-ms': `${motionDurations.stack}ms` } as CSSProperties}>
         <header><div className="stack-heading"><span className={`project-dot dot-${active.color}`}/><strong>{active.name}</strong><span>{active.items.length} 个入口</span><input className="stack-filter" aria-label="筛选当前菜单" placeholder="筛选当前菜单…" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && filter) { event.stopPropagation(); setFilter(''); } }}/></div><div className="stack-header-actions">{folderHeader?.back && <button className="icon-button" aria-label="返回上一层" onClick={folderHeader.back}><ArrowLeft size={16}/></button>}{folderHeader && <strong className="stack-current-name" title={folderHeader.name}>{folderHeader.name}</strong>}{folderHeader && <button className="icon-button" aria-label="刷新目录" disabled={folderHeader.loading || folderHeader.disabled} onClick={folderHeader.refresh}><RefreshCw size={15}/></button>}<button className="icon-button" aria-label="关闭堆叠" onClick={close}><X size={16}/></button></div></header>
         {menuError && <p className="folder-browser-message" role="alert">{menuError}</p>}
@@ -345,6 +348,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
         className={groupTarget === project.id ? 'group-drop-target drop-' + groupIntent : ''}
         onPointerDown={event => { if (editing) begin(event, project); }} onPointerMove={move} onPointerUp={end} onPointerCancel={clearGroupDrag} onLostPointerCapture={clearGroupDrag}
         onClick={event => { if (!editing || event.detail === 0) showStack(project.id); }}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={30}/>{project.name}<ChevronDown size={14}/></button>)}</section>}
+      </div>
     </div>}
     {context && <ContextMenu {...context} onClose={() => setContext(null)}/>}
   </div>;

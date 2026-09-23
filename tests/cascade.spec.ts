@@ -31,7 +31,7 @@ async function setup(page: Page, dock = true, grouped = false) {
   if (dock) { await expect(page.locator('.dock')).toBeVisible(); await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true); }
 }
 const tile = (page: Page, id: string) => page.locator(`.stack-item[data-item-id="${id}"]`);
-async function moveTo(page: Page, element: Locator) { const box = await element.boundingBox(); expect(box).not.toBeNull(); await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 5 }); }
+async function moveTo(page: Page, element: Locator) { await expect.poll(() => page.locator('.stack-panel').evaluateAll(nodes => nodes.every(node => node.getAnimations().every(a => a.playState === 'finished')))).toBe(true); const box = await element.boundingBox(); expect(box).not.toBeNull(); await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 5 }); }
 const calls = (page: Page, method: string) => page.evaluate(method => (window as any).__calls.filter((c: any) => c.method === method), method);
 
 for (const half of ['split-open', 'split-enter']) test(`holding the visible ${half} enters root and child without breaking capture`, async ({ page }) => {

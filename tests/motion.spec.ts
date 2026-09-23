@@ -160,7 +160,7 @@ test('a stack wider than the dock keeps its whole painted width inside the nativ
   await expect(wrap).toHaveClass(/dock-closing/);
   const coverageAt = (time: number) => wrap.evaluate((el, time) => {
     const a = el.getAnimations()[0]; a.pause(); a.currentTime = time;
-    const stack = el.querySelector('.stack-panel')!.getBoundingClientRect();
+    const stack = el.parentElement!.querySelector('.stack-panel')!.getBoundingClientRect();
     const dock = el.querySelector('.dock')!.getBoundingClientRect();
     const rects = (window as any).__motionCalls.filter((call: any) => call.method === 'window.sync').at(-1).params.rects;
     // These points are in the wide stack's painted shadow, above its resting
@@ -181,7 +181,7 @@ test('a stack wider than the dock keeps its whole painted width inside the nativ
   expect((await coverageAt(0)).covers).toEqual([true, true]);
 });
 
-test('bar retracts first while the open stack slides out faster behind it', async ({ page }) => {
+test('bar retracts completely before the faster stack follows', async ({ page }) => {
   await loadDock(page, false, 640, 'relaxed');
   await page.evaluate(() => (window as any).__motionShow(true));
   const wrap = page.locator('.dock-wrap');
@@ -191,13 +191,71 @@ test('bar retracts first while the open stack slides out faster behind it', asyn
   const panel = page.locator('.stack-panel');
   await expect(panel).toBeVisible();
   const enterTiming = await panel.evaluate(el => { const a = el.getAnimations().at(-1)!; return { duration: Number(a.effect!.getTiming().duration), delay: Number(a.effect!.getTiming().delay) }; });
-  expect(enterTiming).toEqual({ duration: 200, delay: 40 });
+  expect(enterTiming.duration).toBe(200);
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  const resting = await panel.boundingBox();
   await page.evaluate(() => (window as any).__motionShow(false));
   // The wrap retracts immediately; the open panel plays its own faster upward slide behind it.
   await expect(wrap).toHaveClass(/dock-closing/);
   await expect(panel).toHaveClass(/stack-leaving/);
   const exitTiming = await panel.evaluate(el => { const a = el.getAnimations().at(-1)!; return { duration: Number(a.effect!.getTiming().duration), delay: Number(a.effect!.getTiming().delay) }; });
-  expect(exitTiming).toEqual({ duration: 200, delay: 50 });
+  expect(exitTiming).toEqual({ duration: 200, delay: 600 });
+  const early = await panel.boundingBox();
+  expect(early!.y).toBeCloseTo(resting!.y, 0);
   expect(await wrap.evaluate(el => Number(el.getAnimations()[0].effect!.getTiming().duration))).toBe(600);
   await expect(panel).toHaveCount(0);
+});
+
+test('submenu exit completion never shrinks its native reentry region', async ({ page }) => {
+  await loadDock(page, false, 640, 'relaxed');
+  await page.evaluate(() => (window as any).__motionShow(true));
+  await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.getByRole('button', { name: '打开 品牌设计 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
+  const panel = page.locator('.stack-panel');
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  const resting = await panel.boundingBox();
+  await page.evaluate(() => (window as any).__motionShow(false));
+  await page.locator('.dock-wrap').evaluate(el => el.getAnimations()[0].pause());
+  await panel.evaluate(el => {
+    el.getAnimations().forEach(a => a.finish());
+    el.dispatchEvent(new AnimationEvent('animationend', { bubbles: true }));
+  });
+  const rects = await page.evaluate(() => (window as any).__motionCalls.filter((c: any) => c.method === 'window.sync').at(-1).params.rects);
+  expect(rects.some((r: any) => resting!.x + 10 >= r.x && resting!.x + 10 <= r.x + r.width && resting!.y + resting!.height - 10 >= r.y && resting!.y + resting!.height - 10 <= r.y + r.height)).toBe(true);
+  await page.evaluate(() => (window as any).__motionShow(true));
+  await expect(page.locator('.dock-wrap')).not.toHaveClass(/dock-closing/);
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await expect(panel).toBeVisible();
+});
+
+test('a returning submenu reverses from its current frame and waits for the bar on reveal', async ({ page }) => {
+  await loadDock(page);
+  await page.evaluate(() => (window as any).__motionShow(true));
+  const wrap = page.locator('.dock-wrap'), panel = page.locator('.stack-panel');
+  await expect.poll(() => wrap.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.getByRole('button', { name: '打开 品牌设计 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.evaluate(() => (window as any).__motionShow(false));
+  await wrap.evaluate(el => el.getAnimations()[0].pause());
+  const before = await panel.evaluate(el => {
+    const a = el.getAnimations()[0]; a.pause();
+    a.currentTime = Number(a.effect!.getTiming().delay) + Number(a.effect!.getTiming().duration) / 2;
+    return getComputedStyle(el).transform;
+  });
+  await page.evaluate(() => (window as any).__motionShow(true));
+  const after = await panel.evaluate(el => {
+    const a = el.getAnimations()[0]; a.pause(); a.currentTime = 0;
+    return { transform: getComputedStyle(el).transform, delay: a.effect!.getTiming().delay };
+  });
+  expect(after.transform).toBe(before);
+  expect(after.delay).toBe(520);
+  await panel.evaluate(el => el.getAnimations()[0].play());
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.evaluate(() => (window as any).__motionShow(false));
+  await expect(wrap).toHaveCount(0);
+  await page.evaluate(() => (window as any).__motionShow(true));
+  await expect(panel).toBeAttached();
+  expect(await panel.evaluate(el => el.getAnimations()[0].effect!.getTiming().delay)).toBe(520);
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await expect(panel).toBeVisible();
 });

@@ -118,7 +118,7 @@ try {
                 }
             } catch { Write-Warning 'Could not inspect temporary Explorer windows for cleanup.' }
         }
-        if ($running.Count) { Start-Process -FilePath $installedExe -ArgumentList '--settings' -WorkingDirectory (Split-Path $installedExe) -WindowStyle Hidden }
+        if ($running.Count) { Start-Process -FilePath $installedExe -ArgumentList '--startup' -WorkingDirectory (Split-Path $installedExe) -WindowStyle Hidden }
     }
     }
     $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
