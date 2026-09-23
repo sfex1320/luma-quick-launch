@@ -181,19 +181,23 @@ test('a stack wider than the dock keeps its whole painted width inside the nativ
   expect((await coverageAt(0)).covers).toEqual([true, true]);
 });
 
-test('submenu leaves first and fast when collapsing with an open stack; relaxed gear restores the original pace', async ({ page }) => {
+test('bar retracts first while the open stack slides out faster behind it', async ({ page }) => {
   await loadDock(page, false, 640, 'relaxed');
   await page.evaluate(() => (window as any).__motionShow(true));
   const wrap = page.locator('.dock-wrap');
   await expect(wrap).toBeVisible();
   await expect.poll(() => wrap.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   await page.getByRole('button', { name: '打开 品牌设计 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
-  await expect(page.locator('.stack-panel')).toBeVisible();
+  const panel = page.locator('.stack-panel');
+  await expect(panel).toBeVisible();
+  const enterTiming = await panel.evaluate(el => { const a = el.getAnimations().at(-1)!; return { duration: Number(a.effect!.getTiming().duration), delay: Number(a.effect!.getTiming().delay) }; });
+  expect(enterTiming).toEqual({ duration: 200, delay: 40 });
   await page.evaluate(() => (window as any).__motionShow(false));
-  // The stack fades out while the dock bar has not started retracting yet.
-  await expect.poll(() => page.locator('.stack-panel.stack-leaving').count(), { intervals: [50, 50, 50, 50, 50, 50], timeout: 3000 }).toBe(1);
+  // The wrap retracts immediately; the open panel plays its own faster upward slide behind it.
   await expect(wrap).toHaveClass(/dock-closing/);
-  const exit = await wrap.evaluate(el => Number(el.getAnimations()[0].effect!.getTiming().duration));
-  expect(exit).toBe(600);
-  await expect(page.locator('.stack-panel')).toHaveCount(0);
+  await expect(panel).toHaveClass(/stack-leaving/);
+  const exitTiming = await panel.evaluate(el => { const a = el.getAnimations().at(-1)!; return { duration: Number(a.effect!.getTiming().duration), delay: Number(a.effect!.getTiming().delay) }; });
+  expect(exitTiming).toEqual({ duration: 200, delay: 50 });
+  expect(await wrap.evaluate(el => Number(el.getAnimations()[0].effect!.getTiming().duration))).toBe(600);
+  await expect(panel).toHaveCount(0);
 });

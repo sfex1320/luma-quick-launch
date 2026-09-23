@@ -244,6 +244,7 @@ try {
   await expect(dock.getByRole('form', { name: '确认实际移动', exact: true })).toHaveCount(0);
   expect(await sourceSnapshot()).toEqual(baseline); check('empty move target explains preparation without changing source fixtures');
 
+  await click(dock.getByRole('button', { name: '整理图标', exact: true }));
   await click(dock.getByRole('button', { name: '收藏 子目录', exact: true }));
   await expect.poll(async () => favorites(await readState()).length).toBe(1);
   const saved = favorites(await readState())[0];
@@ -259,6 +260,7 @@ try {
   await click(dock.locator('[data-folder-level="0"]').getByRole('button', { name: '收藏 子目录', exact: true }));
   await expect.poll(async () => favorites(await readState()).length).toBe(1);
   const favoriteBeforeRestart = favorites(await readState())[0];
+  await click(dock.getByRole('button', { name: '完成整理', exact: true }));
 
   const childRow = dock.locator('[data-folder-level="0"] .directory-row').filter({ has: dock.getByText('子目录', { exact: true }) });
   await childRow.dispatchEvent('contextmenu', { button: 2, clientX: 80, clientY: 150, bubbles: true, cancelable: true });

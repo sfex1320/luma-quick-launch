@@ -29,6 +29,7 @@ async function setup(page: Page, options: { height?: number; childCount?: number
   await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
   await page.getByRole('button', { name: '打开 目录布局 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(page.locator('.directory-row')).toHaveCount(17);
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
 }
 const calls = (page: Page, method: string) => page.evaluate(method => (window as any).__calls.filter((entry: any) => entry.method === method), method);
 
@@ -49,7 +50,7 @@ async function enterChild(page: Page) {
   await page.getByRole('menuitem', { name: '进入', exact: true }).click();
   await expect(page.locator('[data-folder-level="1"] .stack-item')).toBeVisible();
 }
-async function reopen(page: Page) { await page.getByRole('button', { name: '打开 目录布局 主目录，长按展开堆叠', exact: true }).press('ArrowDown'); }
+async function reopen(page: Page) { await page.getByRole('button', { name: '打开 目录布局 主目录，长按展开堆叠', exact: true }).press('ArrowDown'); await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true); }
 
 test('session trail restores by fresh parent tokens and header refresh targets the deepest directory', async ({ page }) => {
   await setup(page); await enterChild(page);
@@ -167,6 +168,7 @@ test('narrow viewport preserves tile dimensions and footer access', async ({ pag
 
 test('dragging a favorite star cannot start its ancestor real-directory drag', async ({ page }) => {
   await setup(page);
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
   await page.evaluate(() => { (window as any).__dragStarts = 0; window.addEventListener('dragstart', () => (window as any).__dragStarts++, true); });
   const star = page.getByRole('button', { name: '收藏 文件1.txt', exact: true });
   const target = page.getByRole('button', { name: '移动到当前实际目录 目录布局', exact: true });

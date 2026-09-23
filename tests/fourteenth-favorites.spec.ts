@@ -38,6 +38,7 @@ const calls = (page:Page) => page.evaluate(()=>(window as any).__calls.filter((c
 
 test('stars make a separate tinted collection; cancel changes references only and sync preserves it', async({page})=>{
   await setup(page);
+  await page.getByRole('button',{name:'整理图标',exact:true}).click();
   const root = page.locator('.dock-launchers > [data-drop-project="root"]');
   await root.getByRole('button',{name:'收藏 工作',exact:true}).click(); await saved(page,1);
   await expect(page.getByRole('separator',{name:'收藏分隔线'})).toBeVisible();
@@ -63,14 +64,17 @@ test('automatic width includes the divided favorite frame before the width cap',
 
 test('directory files, subfolders, group apps, URLs and recent files can all be favorited',async({page})=>{
   await setup(page);
+  await page.getByRole('button',{name:'整理图标',exact:true}).click();
   await page.locator('[data-drop-project="root"] .dock-project').press('ArrowDown');
   await page.getByRole('button',{name:'收藏 子目录',exact:true}).click();await saved(page,1);
   await page.getByRole('button',{name:'收藏 设计.psd',exact:true}).click();await saved(page,2);
   await page.locator('[data-drop-project="apps"] .dock-project').press('ArrowDown');
   await page.getByRole('button',{name:'收藏 网站',exact:true}).click();await saved(page,3);
   await page.getByRole('button',{name:'收藏 编辑器',exact:true}).click();await saved(page,4);
+  await page.getByRole('button',{name:'完成整理',exact:true}).click();
   await page.locator('.group-column [data-item-id="app"]').first().hover();
   await page.getByRole('button',{name:'查看 编辑器 最近项目',exact:true}).click();
+  await page.getByRole('button',{name:'整理图标',exact:true}).click();
   await page.getByRole('button',{name:'收藏 最近.psd',exact:true}).click();await saved(page,5);
   expect(await calls(page)).toHaveLength(0);
   const kinds = await page.evaluate(()=>(window as any).__state().projects.filter((p:any)=>p.favorite).map((p:any)=>p.items[0].kind));
@@ -78,13 +82,16 @@ test('directory files, subfolders, group apps, URLs and recent files can all be 
 });
 
 test('favorite launch uses its saved identity and collapses; wake restores previous menu',async({page})=>{
-  await setup(page); await page.locator('[data-drop-project="root"] .dock-project').press('ArrowDown');
+  await setup(page); await page.getByRole('button',{name:'整理图标',exact:true}).click();
+  await page.locator('[data-drop-project="root"] .dock-project').press('ArrowDown');
   await page.getByRole('button',{name:'收藏 设计.psd',exact:true}).click();await saved(page,1);
+  await page.getByRole('button',{name:'完成整理',exact:true}).click();
   const favorite = page.getByRole('group',{name:'收藏区'});
   await favorite.locator('.dock-project').click();
   await expect(page.locator('.dock')).toHaveCount(0);
   expect(await calls(page)).toMatchObject([{method:'shell.openItem',params:{projectId:expect.any(String),itemId:expect.any(String)}}]);
   await page.evaluate(()=>(window as any).__emitVisible(true));
   await expect(page.getByLabel('工作 文件夹堆叠', {exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'整理图标',exact:true}).click();
   await expect(page.getByRole('button',{name:'取消收藏 设计.psd',exact:true}).first()).toBeVisible();
 });

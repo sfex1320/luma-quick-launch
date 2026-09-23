@@ -85,6 +85,7 @@ test('panel header shows the current directory name and back walks up', async ({
 
 test('main bar favorite star is compact while submenu stars keep their size', async ({ page }) => {
   await setup(page);
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
   const dockStar = (await page.locator('.dock-launchers .favorite-button').first().boundingBox())!;
   const menuStar = (await page.locator('.folder-column .favorite-button').first().boundingBox())!;
   expect(dockStar.width).toBe(17);
@@ -124,6 +125,7 @@ test('edit mode keeps the open stack and shows remove, favorite and shortcut bad
   await expect(badge).toHaveText('CB');
   await expect(page.locator('.dock-tools .shortcut-badge')).toHaveText('CSC');
   await expect(page.locator('.stack-panel .favorite-button').first()).toBeVisible();
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   for (const button of await page.locator('.group-column .shortcut-remove').all()) {
     const box = (await button.boundingBox())!, glyph = (await button.locator('svg').boundingBox())!;
     expect(Math.abs(box.x + box.width / 2 - (glyph.x + glyph.width / 2))).toBeLessThan(0.5);

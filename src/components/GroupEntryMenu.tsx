@@ -25,7 +25,7 @@ export function GroupEntryMenu({ project, highlight, filter, badgeForItem, onOpe
             <ItemIcon projectId={project.id} itemId={item.id} pathKey={item.path} kind={item.kind} color={project.color} size={38}/><span><strong>{item.name}</strong><small>{item.kind === 'folder' ? '文件夹' : item.kind === 'app' ? '软件' : item.kind === 'url' ? '网站' : '文件'}</small></span>
           </button>
         </SplitFolderTile>
-        {renderAccessory?.(item)}
+        {editing && renderAccessory?.(item)}
         {editing && <><button className="shortcut-remove" aria-label={`移除快捷项 ${item.name}`} onClick={() => onRemove?.(item.id)}><X size={12}/></button><button className="shortcut-extract" aria-label={`将 ${item.name} 移到主面板`} onClick={() => onExtract?.(item.id)}><ArrowUpRight size={13}/></button>{badgeForItem?.(item.id) && <span className="shortcut-badge">{badgeForItem(item.id)}</span>}</>}
       </div>)}
       {project.items.length > 0 && !visible.length && <p className="folder-browser-message">当前菜单没有匹配「{filter?.trim()}」的内容</p>}
