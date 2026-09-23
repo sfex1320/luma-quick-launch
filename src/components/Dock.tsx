@@ -80,7 +80,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
   const showStack = (id: string | null) => { menuGeneration.current++; const project = projects.find(project => project.id === id); setFilter(''); setBrowseItemId(project ? remember(project).browse : null); setMenuError(''); setStack(id); setMore(false); };
   const selectBrowse = (id: string | null) => { if (active) remember(active).browse = id; setFilter(''); setBrowseItemId(id); };
   const collapseAfterLaunch = () => { preserve(); setVisible(false); };
-  // Primary and submenu surfaces move independently, in that order.
+  // Independent surfaces: primary first on reveal, submenu first on collapse.
   const motionDurations = DOCK_SPEEDS[p.motionSpeed ?? 'standard'];
   const preserve = () => { menuGeneration.current++; clearPress(); clearGroupDrag(); setMenuError(''); setMore(false); };
   const toggle = (project: Project, items = project.items, name = project.name) => { clearPress(); onFavorite?.(name, project.color, items); };

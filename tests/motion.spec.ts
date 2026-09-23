@@ -184,7 +184,7 @@ test('a stack wider than the dock keeps its whole painted width inside the nativ
   expect((await coverageAt(0)).covers).toEqual([true, true]);
 });
 
-test('bar retracts completely before the faster stack follows', async ({ page }) => {
+test('the faster stack retracts completely before the bar follows', async ({ page }) => {
   await loadDock(page, false, 640, 'relaxed');
   await page.evaluate(() => (window as any).__motionShow(true));
   const wrap = page.locator('.dock-wrap');
@@ -196,17 +196,35 @@ test('bar retracts completely before the faster stack follows', async ({ page })
   const enterTiming = await panel.evaluate(el => { const a = el.getAnimations().at(-1)!; return { duration: Number(a.effect!.getTiming().duration), delay: Number(a.effect!.getTiming().delay) }; });
   expect(enterTiming.duration).toBe(200);
   await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
-  const resting = await panel.boundingBox();
   await page.evaluate(() => (window as any).__motionShow(false));
-  // The wrap retracts immediately; the open panel plays its own faster upward slide behind it.
+  // Secondary first on exit; primary first on entrance.
   await expect(wrap).toHaveClass(/dock-closing/);
   await expect(panel).toHaveClass(/stack-leaving/);
   const exitTiming = await panel.evaluate(el => { const a = el.getAnimations().at(-1)!; return { duration: Number(a.effect!.getTiming().duration), delay: Number(a.effect!.getTiming().delay) }; });
-  expect(exitTiming).toEqual({ duration: 200, delay: 600 });
-  const early = await panel.boundingBox();
-  expect(early!.y).toBeCloseTo(resting!.y, 0);
+  expect(exitTiming).toEqual({ duration: 200, delay: 0 });
+  const primary = await wrap.evaluate(el => {
+    const a = el.getAnimations()[0]; a.pause(); a.currentTime = 199;
+    return { delay: a.effect!.getTiming().delay, y: new DOMMatrixReadOnly(getComputedStyle(el).transform).m42 };
+  });
+  expect(primary).toEqual({ delay: 200, y: 0 });
+  await wrap.evaluate(el => el.getAnimations()[0].play());
   expect(await wrap.evaluate(el => Number(el.getAnimations()[0].effect!.getTiming().duration))).toBe(600);
   await expect(panel).toHaveCount(0);
+});
+
+test('switching open groups changes content immediately without replaying the submenu entrance', async ({ page }) => {
+  await loadDock(page);
+  await page.evaluate(() => (window as any).__motionShow(true));
+  await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  await page.locator('.dock-project').nth(0).press('ArrowDown');
+  const panel = page.locator('.stack-panel');
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  for (const index of [1, 2, 0, 2, 1]) {
+    await page.locator('.dock-project').nth(index).press('ArrowDown');
+    const state = await panel.evaluate(el => ({ y: new DOMMatrixReadOnly(getComputedStyle(el).transform).m42,
+      slides: el.getAnimations().filter(a => a.playState !== 'finished' && Number(a.effect!.getTiming().duration) > 0).length }));
+    expect(state).toEqual({ y: 0, slides: 0 });
+  }
 });
 
 test('submenu exit completion never shrinks its native reentry region', async ({ page }) => {

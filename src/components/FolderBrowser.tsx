@@ -124,7 +124,7 @@ function FolderPane({ projectId, item, color, highlight, filter, editing = false
   const visibleEntries = listing && filter.trim() ? listing.entries.filter(entry => fuzzyIncludes(filter, entry.name)) : listing?.entries ?? [];
   return <div className="folder-browser folder-column" data-folder-level={index} aria-label={`${listing?.name ?? level.name} 目录层`}
     onContextMenu={event => { if (listing) actions.openContext(event, listing); }}>
-    {loading && <p className="folder-browser-message" role="status">正在读取目录…</p>}
+    {loading && <p className="folder-browser-message folder-loading" role="status">正在读取目录…</p>}
     {error && <div className="folder-browser-message" role="alert"><p>{error}</p><button className="text-button" onClick={() => setReload(n => n + 1)}>重新读取</button></div>}
     {listing && <>
       <div className="stack-items directory-items launch-grid" aria-label={`${listing.name} 目录内容`} {...pan}>

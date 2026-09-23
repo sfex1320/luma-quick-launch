@@ -30,6 +30,7 @@ async function attachHost(page: Page, seed = initial, listing = root) {
       else if (req.method === 'project.runTest') result = { opened: true };
       const respond = (fail = false) => listeners.forEach(listener => listener({ data: { protocol: 1, type: 'response', id: req.id, ok: !fail, ...(fail ? { error: { code: 'OPEN_FAILED', message: '旧目录打开失败' } } : { result }) } }));
       if (req.method === 'folder.open' && host.__delayFolderOpen) host.__finishFolderOpen = respond;
+      else if (req.method === 'folder.list' && host.__holdFolderList) host.__finishFolderList = respond;
       else if (req.method === 'project.runTest' && host.__delayTestRun) host.__finishTestRun = respond;
       else setTimeout(respond, 15);
       if (req.method === 'app.getState') setTimeout(() => listeners.forEach(listener => listener({ data: { protocol: 1, type: 'event', event: 'window.visibility', data: { visible: true, visibilityId: 1 } } })), 90);
@@ -41,6 +42,24 @@ async function attachHost(page: Page, seed = initial, listing = root) {
 }
 
 const projectButton = (page: Page, name: string) => page.getByRole('button', { name: `打开 ${name} 主目录，长按展开堆叠`, exact: true });
+
+test('switching between folders keeps the directory area height while a fresh listing loads', async ({ page }) => {
+  const seed = structuredClone(initial);
+  seed.projects.push({ ...structuredClone(seed.projects[0]), id: 'second-folder', name: '第二目录' });
+  await attachHost(page, seed);
+  await projectButton(page, '电梯贴').press('ArrowDown');
+  await expect(page.locator('.directory-row')).toHaveCount(3);
+  const panel = page.locator('.stack-panel');
+  await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  const height = await panel.evaluate(el => el.getBoundingClientRect().height);
+  await page.evaluate(() => { (window as any).__holdFolderList = true; });
+  await projectButton(page, '第二目录').press('ArrowDown');
+  await expect(page.getByText('正在读取目录…', { exact: true })).toBeVisible();
+  expect(Math.abs(await panel.evaluate(el => el.getBoundingClientRect().height) - height)).toBeLessThanOrEqual(1);
+  await page.evaluate(() => (window as any).__finishFolderList());
+  await expect(page.locator('.directory-row')).toHaveCount(3);
+  expect(Math.abs(await panel.evaluate(el => el.getBoundingClientRect().height) - height)).toBeLessThanOrEqual(1);
+});
 async function center(target: Locator) { await expect.poll(() => target.evaluate(el => el.closest('.stack-panel')?.getAnimations().every(a => a.playState === 'finished') ?? true)).toBe(true); const box = await target.boundingBox(); expect(box).not.toBeNull(); return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }; }
 async function hold(page: Page, target: Locator) { const point = await center(target); await page.mouse.move(point.x, point.y); await page.mouse.down(); }
 async function calls(page: Page, method: string) { return page.evaluate(method => (window as any).__calls.filter((call: any) => call.method === method), method); }

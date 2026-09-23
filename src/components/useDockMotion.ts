@@ -31,6 +31,7 @@ export function useDockMotion({ visible, reducedMotion, waitForLayout = false, d
   const mountedElement = useRef<HTMLElement | null>(null);
   const motion = useRef<{ animation: Animation; entering: boolean } | null>(null);
   const panels = useRef(new Map<HTMLElement, Animation>());
+  const panelState = useRef({ visible, menuKey });
   const entranceFrame = useRef<number | null>(null);
   const exitCallback = useRef(onExited);
   exitCallback.current = onExited;
@@ -90,6 +91,7 @@ export function useDockMotion({ visible, reducedMotion, waitForLayout = false, d
     element.style.willChange = reduced ? '' : 'transform';
     const animation = element.animate([from, target], {
       duration: reduced ? 0 : visible ? durations.enter : durations.exit,
+      delay: !visible && !reduced && element.parentElement?.querySelector('.stack-panel,.more-panel') ? durations.stack ?? 160 : 0,
       easing: 'cubic-bezier(.42,0,.58,1)',
       fill: 'forwards',
     });
@@ -112,10 +114,12 @@ export function useDockMotion({ visible, reducedMotion, waitForLayout = false, d
   useLayoutEffect(() => {
     const elements = [...wrap.current?.parentElement?.querySelectorAll<HTMLElement>('.stack-panel,.more-panel') ?? []];
     const previous = panels.current;
+    const switching = visible && panelState.current.visible && panelState.current.menuKey !== menuKey && previous.size > 0;
+    panelState.current = { visible, menuKey };
     panels.current = new Map();
     for (const element of elements) {
       const old = previous.get(element);
-      const from = old ? `${getDockTranslationY(element)}px` : 'calc(-100% - 16px)';
+      const from = switching ? '0px' : old ? `${getDockTranslationY(element)}px` : 'calc(-100% - 16px)';
       old?.cancel();
       const target = visible ? '0px' : 'calc(-100% - 16px)';
       const primary = motion.current?.animation;
@@ -124,7 +128,7 @@ export function useDockMotion({ visible, reducedMotion, waitForLayout = false, d
       const animation = element.animate([
         { transform: `translate(-50%,${from})` },
         { transform: `translate(-50%,${target})` },
-      ], { duration: reducedMotion ? 0 : durations.stack ?? 160, delay: reducedMotion ? 0 : remaining,
+      ], { duration: reducedMotion || switching ? 0 : durations.stack ?? 160, delay: reducedMotion || switching || !visible ? 0 : remaining,
         easing: 'cubic-bezier(.42,0,.58,1)', fill: 'both' });
       if (primary?.playState === 'paused') { animation.pause(); animation.currentTime = 0; }
       panels.current.set(element, animation);

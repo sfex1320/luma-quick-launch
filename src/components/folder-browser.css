@@ -43,3 +43,5 @@
 .folder-cascade>.folder-column,.stack-body-cascade .folder-cascade>.folder-column{flex-basis:min(402px,calc(100vw - 58px));width:min(402px,calc(100vw - 58px))}
 .stack-panel .folder-column .directory-items.launch-grid{grid-template-columns:repeat(4,88px);height:218px;max-height:min(218px,max(94px,var(--menu-available-height,calc(100vh - 308px))));flex:0 1 auto}
 @media(max-width:459px){.stack-panel .folder-column .directory-items.launch-grid{grid-template-columns:repeat(auto-fill,88px)}}
+/* Reserve the 218px directory grid plus its 45px action row while acquiring fresh tokens. */
+.folder-column>.folder-loading{height:263px;flex:0 1 263px;min-height:0;margin:0;display:flex;align-items:center;justify-content:center}
