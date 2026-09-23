@@ -131,6 +131,7 @@ test('blank grab releases on blur, lost capture and cancellation; right drag pan
 test('grab does not steal a file press or a wheel scroll', async ({ page }) => {
   await setup(page); await project(page, '目录').press('ArrowDown');
   const list = page.locator('.directory-items'); await expect(list).toBeVisible();
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   const tile = page.locator('.stack-item[data-item-id="root-1"]'), p = await tile.boundingBox();
   await page.mouse.move(p!.x + 30, p!.y + 30); await page.mouse.down(); await page.mouse.move(p!.x + 30, p!.y + 10); await page.mouse.up();
   expect(await list.evaluate(node => node.scrollTop)).toBe(0);

@@ -12,6 +12,7 @@ test('long press slides to one child without opening the root', async ({ page })
   const box = await origin.boundingBox();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2); await page.mouse.down();
   await expect(page.getByRole('region', { name: '品牌设计 文件夹堆叠' })).toBeVisible();
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   const target = page.locator('[data-item-id="design"]'); const b = await target.boundingBox();
   await page.mouse.move(b!.x + b!.width / 2, b!.y + b!.height / 2, { steps: 6 });
   await expect(target).toHaveClass(/selected/); await page.mouse.up();

@@ -30,6 +30,7 @@ async function setup(page: Page, options: { grouped?: boolean; shortcuts?: Array
   await expect.poll(() => page.locator('.dock-wrap').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
   await page.getByRole('button', { name: '打开 目录布局 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   await expect(page.locator('.stack-panel')).toBeVisible();
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
 }
 const calls = (page: Page, method: string) => page.evaluate(method => (window as any).__calls.filter((entry: any) => entry.method === method), method);
 

@@ -68,6 +68,7 @@ test('software hover opens a complete configured recent list and launches by IDs
 
 test('long-pressing software enters recent items without dismissing the parent group', async ({ page }) => {
   await host(page); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '打开 创作 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   const photoshop = page.locator('.group-entry-row .stack-item[data-item-id="ps"]'), box = await photoshop.boundingBox();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2); await page.mouse.down(); await page.waitForTimeout(360); await page.mouse.up();
   await expect(page.getByLabel('创作 组内入口')).toBeVisible();
@@ -120,10 +121,12 @@ test('a group entry can be dragged out and then dragged into another group witho
   await host(page, grouped); await page.goto('/?view=dock&mode=native'); await page.getByRole('button', { name: '整理图标' }).click();
   await page.getByRole('button', { name: '打开 创作 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const source = page.locator('.group-entry-row .stack-item[data-item-id="ps"]');
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   await source.dragTo(page.locator('.dock-launchers'));
   await expect.poll(() => page.evaluate(() => (window as any).__state().projects.some((p: any) => p.items.length === 1 && p.items[0].id === 'ps'))).toBe(true);
   await page.getByRole('button', { name: '打开 资料 主目录，长按展开堆叠', exact: true }).press('ArrowDown');
   const detached = page.locator('.dock-slot').filter({ hasText: 'Photoshop' }).locator('.dock-project');
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   await detached.dragTo(page.getByLabel('资料 组内入口'));
   await expect.poll(() => page.evaluate(() => (window as any).__state().projects.find((p: any) => p.id === 'docs').items.some((i: any) => i.id === 'ps'))).toBe(true);
   expect(await page.evaluate(() => (window as any).__state().projects.find((p: any) => p.id === 'docs').items.find((i: any) => i.id === 'ps').path)).toBe('C:\\Adobe\\Photoshop.exe');

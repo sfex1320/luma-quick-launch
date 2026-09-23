@@ -13,7 +13,7 @@ if (!process.env.LUMA_TEST_EXE) throw new Error('Explicit isolated executable re
 const exe = path.resolve(process.env.LUMA_TEST_EXE);
 if (exe.toLowerCase() === path.join(root, 'APP/Luma/Luma.exe').toLowerCase()) throw new Error('Do not test against the live copy');
 assertExecutableIdle(exe);
-execFileSync('powershell.exe', ['-NoProfile', '-File', path.join(root, 'scripts/assert-delivery-window.ps1')], { windowsHide: true });
+execFileSync('powershell.exe', ['-NoProfile', '-File', path.join(root, 'scripts/assert-delivery-window.ps1'), ...(process.env.LUMA_REENTRY_USER_READY === '1' ? ['-AllowActiveForeground'] : [])], { windowsHide: true });
 const data = path.join(tmpdir(), `luma-reentry-${randomUUID()}`);
 await mkdir(data, { recursive: true });
 const state = JSON.parse(await readFile(path.join(root, 'docs/contracts/empty-state.json'), 'utf8'));
@@ -38,6 +38,9 @@ try {
   const panel = dock.locator('.stack-panel');
   await expect(panel).toBeVisible();
   await expect.poll(() => panel.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  // DOM ArrowDown is only fixture setup; release its keyboard keep-open lease
+  // before measuring the physical pointer's native auto-collapse behavior.
+  await dock.evaluate(() => window.dispatchEvent(new Event('blur')));
   const windows = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-File', path.join(root, 'native/tests/Inspect-NativeWindow.ps1'), '-TargetProcessId', String(host.pid)], { encoding: 'utf8', windowsHide: true }));
   const bounds = windows.find(w => w.Title === 'Luma Dock').Bounds;
   const metrics = await dock.evaluate(() => ({ scale: devicePixelRatio, bar: document.querySelector('.dock').getBoundingClientRect().toJSON(), panel: document.querySelector('.stack-panel').getBoundingClientRect().toJSON() }));

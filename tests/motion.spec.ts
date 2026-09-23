@@ -41,6 +41,9 @@ test('native exit is not reversed by renderer pointer movement or focus changes 
   const wrap = page.locator('.dock-wrap');
   await expect(wrap).toBeVisible();
   await expect.poll(() => wrap.evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
+  const viewport = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, innerWidth, innerHeight }));
+  expect(viewport.width).toBeLessThanOrEqual(viewport.innerWidth);
+  expect(viewport.height).toBeLessThanOrEqual(viewport.innerHeight);
   await page.evaluate(() => (window as any).__motionShow(false));
   await expect(wrap).toHaveClass(/dock-closing/);
   await wrap.evaluate(el => {

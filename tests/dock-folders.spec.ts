@@ -456,6 +456,7 @@ test('large directories scroll inside fixed tiles while Open current directory r
   const listing={...root,entries:Array.from({length:60},(_,i)=>({id:`entry-${i}`,name:`文档 ${i}.pdf`,kind:'file' as const}))};
   await attachHost(page,seed,listing);
   await page.getByRole('button', { name: '打开 电梯贴 主目录，长按展开堆叠', exact: true }).press('ArrowDown');await expect(page.locator('.directory-row')).toHaveCount(60);
+  await expect.poll(() => page.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
   const grid=await page.locator('.directory-items').evaluate(el=>({scroll:el.scrollHeight>el.clientHeight,overflow:el.scrollWidth>el.clientWidth}));
   expect(grid).toEqual({scroll:true,overflow:false});
   const footer=await page.getByRole('button',{name:'打开当前目录',exact:true}).boundingBox();

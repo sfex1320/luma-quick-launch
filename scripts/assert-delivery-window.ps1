@@ -1,4 +1,5 @@
 # Read-only preflight. Never steals focus or terminates an application.
+param([switch]$AllowActiveForeground)
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;
@@ -29,4 +30,4 @@ $idleMs=([long][Environment]::TickCount64 - [long]$inputState.Time) -band 0xffff
 $result=[ordered]@{atUtc=[DateTime]::UtcNow.ToString('o');foreground=$foreground.ProcessName;foregroundPid=$foregroundPid;fullscreen=$fullscreen;idleSeconds=[math]::Round($idleMs/1000,1)}
 $result | ConvertTo-Json -Compress
 if ($fullscreen -and $foreground.ProcessName -notin @('explorer')) { throw 'Fullscreen foreground: delivery GUI checks must wait.' }
-if ($idleMs -lt 120000 -and $foreground.ProcessName -notmatch '^(Codex|Luma|explorer)$') { throw 'User is active in another foreground application: delivery GUI checks must wait.' }
+if (-not $AllowActiveForeground -and $idleMs -lt 120000 -and $foreground.ProcessName -notmatch '^(Codex|Luma|explorer)$') { throw 'User is active in another foreground application: delivery GUI checks must wait.' }
