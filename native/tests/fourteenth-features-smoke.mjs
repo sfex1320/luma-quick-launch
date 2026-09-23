@@ -218,6 +218,7 @@ try {
   evidence.hostSha256 = await hash(path.join(path.dirname(exe), 'Luma.dll'));
   evidence.frontendSha256 = await hash(path.join(path.dirname(exe), 'dist/index.html'));
   let dock = await startHost(); await observeListings(dock); await showDock(dock); await openRoot(dock);
+  await expect.poll(() => dock.locator('.stack-panel').evaluate(el => el.getAnimations().every(a => a.playState === 'finished'))).toBe(true);
 
   const geometry = await dock.locator('[data-folder-level="0"] .directory-items').evaluate(grid => {
     const frame = grid.getBoundingClientRect();
