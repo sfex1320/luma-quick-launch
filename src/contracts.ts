@@ -65,6 +65,8 @@ export type IntegrationStatus = z.infer<typeof IntegrationSchema>;
 export const RecentSchema = z.object({ entries: z.array(z.object({ id: z.string(), name: z.string(), path: z.string(), kind: z.enum(['file','folder']) })).max(10), note: z.string() });
 export const MutationSchema = z.object({ changedCount: z.number(), completed: z.boolean(), errorCode: z.string().nullable(), message: z.string().nullable() });
 export interface Methods {
+  'shell.getAppCapabilities': { params: { projectId: string; itemId: string }; result: { recentSupported: boolean } };
+  'folder.transfer': { params: { operation: 'copy' | 'move' | 'link'; targetProject: string; targetItem: string; targetFolderId: string; sourceProject?: string; sourceItem?: string; sourceEntryId?: string }; result: z.infer<typeof MutationSchema> };
   'shortcut.getStatus': { params: Record<string, never>; result: { bindings: { id: string; registered: boolean; message: string }[] } };
   'shortcut.execute': { params: { id: string }; result: { accepted: boolean } };
   'shortcut.setRecording': { params: { active: boolean }; result: { accepted: boolean } };
@@ -103,6 +105,8 @@ export interface UpdateCheckResult { currentVersion: string; latestVersion: stri
 export type Method = keyof Methods;
 export type HostEvent = { event: 'app.stateChanged'; data: AppState } | { event: 'window.visibility'; data: { visible: boolean; visibilityId?: number } } | { event: 'shortcut.activated'; data: { id: string; serial: number } };
 export const resultSchemas = {
+  'shell.getAppCapabilities': z.object({ recentSupported: z.boolean() }),
+  'folder.transfer': MutationSchema,
   'shortcut.getStatus': z.object({ bindings: z.array(z.object({ id: z.string(), registered: z.boolean(), message: z.string() })).max(128) }),
   'shortcut.execute': z.object({ accepted: z.boolean() }),
   'shortcut.setRecording': z.object({ accepted: z.boolean() }),

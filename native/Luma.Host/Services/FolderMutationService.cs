@@ -15,7 +15,7 @@ public sealed record FolderMutationResult(int ChangedCount, bool Completed, stri
 /// mutations use a directory handle plus one validated relative name, never re-traverse an absolute path.
 /// Renames use the opened source with ReplaceIfExists=false, never copy/delete fallback.
 /// </summary>
-public sealed class FolderMutationService
+public sealed partial class FolderMutationService
 {
     private static readonly SemaphoreSlim Workers = new(2, 2);
     private readonly FolderService _folders;
@@ -207,8 +207,8 @@ public sealed class FolderMutationService
     private sealed class PathLease : IDisposable
     {
         private readonly Dictionary<string, Pinned> _handles = new(StringComparer.OrdinalIgnoreCase);
-        public Pinned Pin(string path, bool directory, bool deleteAccess = false) => PinCore(path, directory, deleteAccess, 0);
-        private Pinned PinCore(string path, bool directory, bool deleteAccess, int depth)
+        public Pinned Pin(string path, bool directory, bool deleteAccess = false, bool readOnly = false) => PinCore(path, directory, deleteAccess, 0, readOnly);
+        private Pinned PinCore(string path, bool directory, bool deleteAccess, int depth, bool readOnly = false)
         {
             path = Path.TrimEndingDirectorySeparator(path);
             if (_handles.TryGetValue(path, out var existing)) return existing;
@@ -222,7 +222,7 @@ public sealed class FolderMutationService
             // re-traversed by mutation. Source handles additionally disallow write access.
             // FILE_READ_DATA / FILE_LIST_DIRECTORY is essential: metadata-only handles do not participate
             // in Windows share-access enforcement and therefore cannot protect against substitution.
-            var handle = CreateFile(path, 0x81u | (deleteAccess ? 0x10000u : 0), deleteAccess ? 0x1u : 0x3u, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+            var handle = CreateFile(path, 0x81u | (deleteAccess ? 0x10000u : 0), deleteAccess || readOnly ? 0x1u : 0x3u, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
             if (handle.IsInvalid) { handle.Dispose(); throw NativeError(); }
             try
             {

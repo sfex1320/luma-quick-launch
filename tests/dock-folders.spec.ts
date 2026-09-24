@@ -25,6 +25,8 @@ async function attachHost(page: Page, seed = initial, listing = root) {
       if (req.method === 'app.getState') result = state;
       else if (req.method === 'app.saveState') { state = { ...req.params.state, revision: state.revision + 1 }; host.__hostState = state; result = state; }
       else if (req.method === 'window.sync') result = { applied: true };
+      else if (req.method === 'shell.getAppCapabilities') result = { recentSupported: true };
+      else if (req.method === 'shell.getRecent') result = { entries: [], note: '' };
       else if (req.method === 'folder.list') result = req.params.folderId === 'token-design' ? child : root;
       else if (req.method === 'project.detectTest') result = { task: req.params.folderId === 'token-root' ? host.__testTask ?? null : null };
       else if (req.method === 'project.runTest') result = { opened: true };

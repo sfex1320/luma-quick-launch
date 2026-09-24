@@ -42,13 +42,13 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
       const id = crypto.randomUUID();
       // Once a disk mutation commits it cannot safely time out as "failed": retain
       // the final response and the UI busy state. Native admission is bounded to two.
-      const diskMutation = method === 'folder.createFolder' || method === 'folder.rename' || method === 'folder.move';
+      const diskMutation = method === 'folder.createFolder' || method === 'folder.rename' || method === 'folder.move' || method === 'folder.transfer';
       const timeout = diskMutation ? undefined : setTimeout(() => { pending.delete(id); reject(new Error('内核响应超时，请检查连接')); }, method === 'shell.pickFolder' || method === 'shell.pickFiles' ? 120000 : 8000);
       pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject, timeout });
       try {
         const message = { protocol: 1, type: 'request', id, method, params };
         if (files) {
-          if (method !== 'shell.resolveDrop' || !webview.postMessageWithAdditionalObjects) throw new Error('当前内核不支持拖入');
+          if ((method !== 'shell.resolveDrop' && method !== 'folder.transfer') || !webview.postMessageWithAdditionalObjects) throw new Error('当前内核不支持拖入');
           webview.postMessageWithAdditionalObjects(message, files);
         } else webview.postMessage(message);
       }
@@ -57,6 +57,8 @@ export async function request<M extends Method>(method: M, params: Methods[M]['p
   }
   let result: unknown;
   switch (method) {
+    case 'shell.getAppCapabilities': result = { recentSupported: false }; break;
+    case 'folder.transfer': throw new Error('请在 Luma 桌面程序中复制、移动文件或创建快捷方式。');
     case 'shortcut.getStatus': result = { bindings: (demoState.preferences.shortcuts ?? []).map(binding => ({ id: binding.id, registered: binding.scope === 'panel', message: binding.scope === 'panel' ? '面板有焦点时生效' : '全局快捷键需在桌面版生效' })) }; break;
     case 'shortcut.setRecording': result = { accepted: true }; break;
     case 'shortcut.execute': throw new Error('原生快捷键执行仅适用于桌面程序。');

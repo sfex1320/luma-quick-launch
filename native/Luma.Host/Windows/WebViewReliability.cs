@@ -147,17 +147,28 @@ public sealed class WebViewReliability : IDisposable
             _web.Visibility = Visibility.Visible;
             Log.Info($"{_name} WebView 已恢复");
         }
-        catch (Exception ex) { Stop($"恢复失败: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            Log.Error($"{_name} WebView 恢复异常 pid={Environment.ProcessId} {ex}");
+            Stop($"恢复失败: {ex.Message}");
+        }
     }
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
     {
         var action = _policy.Decide(e.ProcessFailedKind, DateTimeOffset.UtcNow);
-        Log.Warn($"{_name} WebView 进程故障 kind={e.ProcessFailedKind} action={action}");
+        string details;
+        try { details = $"reason={e.Reason} exitCode={e.ExitCode} description={e.ProcessDescription}"; }
+        catch (Exception ex) { details = $"detailsUnavailable={ex.GetType().Name}"; }
+        Log.Warn($"{_name} WebView 进程故障 pid={Environment.ProcessId} kind={e.ProcessFailedKind} action={action} {details}");
         if (action == WebViewFailureAction.Ignore) return;
         if (action == WebViewFailureAction.Stop) { Stop($"进程故障 {e.ProcessFailedKind}"); return; }
         try { _beforeReload?.Invoke(); _core?.Reload(); }
-        catch (Exception ex) { Stop($"重载失败: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            Log.Error($"{_name} WebView 重载异常 pid={Environment.ProcessId} {ex}");
+            Stop($"重载失败: {ex.Message}");
+        }
     }
 
     private void Stop(string detail)

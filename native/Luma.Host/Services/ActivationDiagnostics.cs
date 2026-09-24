@@ -7,6 +7,14 @@ namespace Luma.Host.Services;
 /// <summary>Event-only diagnostics. No polling, input hooks, window titles or activation side effects.</summary>
 internal static class ActivationDiagnostics
 {
+    internal static bool ReadMouseMessageSource(out int device, out int origin)
+    {
+        var available = GetCurrentInputMessageSource(out var source);
+        device = source.DeviceType;
+        origin = source.OriginId;
+        return available;
+    }
+
     internal static string Capture(IntPtr hotspot = default)
     {
         try
@@ -25,6 +33,7 @@ internal static class ActivationDiagnostics
             return $"cursor={(available ? $"{point.X},{point.Y}" : "unavailable")} " +
                 $"physical={(physicalAvailable ? $"{physical.X},{physical.Y}" : "unavailable")} " +
                 $"cursorFlags={(cursorAvailable ? cursor.Flags.ToString() : "unavailable")} " +
+                $"lastInputTick={(inputAvailable ? input.Time.ToString() : "unavailable")} " +
                 $"inputAgeMs={(inputAvailable ? Age(unchecked((uint)Environment.TickCount64), input.Time).ToString() : "unavailable")} " +
                 $"messageAgeMs={Age(unchecked((uint)Environment.TickCount64), unchecked((uint)GetMessageTime()))} " +
                 $"inputSource={(sourceAvailable ? $"{source.DeviceType}/{source.OriginId}" : "unavailable")} " +

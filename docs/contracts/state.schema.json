@@ -242,6 +242,14 @@
             ],
             "additionalProperties": false
           }
+        },
+        "motionSpeed": {
+          "type": "string",
+          "enum": [
+            "relaxed",
+            "standard",
+            "brisk"
+          ]
         }
       },
       "required": [

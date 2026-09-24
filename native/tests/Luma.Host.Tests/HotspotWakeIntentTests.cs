@@ -96,6 +96,7 @@ public class HotspotWakeIntentTests
         Dispatch(hotspot, 0x0200);
         Assert.Equal(1, enters);
         Assert.Equal(2, moves);
+        Assert.False(hotspot.CurrentMoveCanStartHover); // Direct messages have no hardware mouse provenance.
         Dispatch(hotspot, 0x02A3);
         Dispatch(hotspot, 0x0200);
         Assert.Equal(2, enters);

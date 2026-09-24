@@ -145,12 +145,14 @@ test('partial move refreshes the whole cascade and never requests a stale child 
   expect((await calls(page, 'folder.list')).at(-1).params).toEqual({ projectId: 'source', itemId: 'main' });
 });
 
-test('real-entry drag does nothing on ordinary grid and only the explicit footer proposes a confirmed move', async ({ page }) => {
+test('ordinary grid proposes a copy while the explicit footer still confirms a move', async ({ page }) => {
   await setup(page);
   const data = await page.evaluateHandle(() => new DataTransfer());
   await tile(page, 'source-file-0').locator('..').dispatchEvent('dragstart', { dataTransfer: data });
   expect(await data.evaluate((transfer, type) => JSON.parse(transfer.getData(type)), mime)).toEqual({ projectId: 'source', itemId: 'main', entryId: 'source-file-0', name: '原文件.txt' });
   await page.locator('.directory-items').dispatchEvent('drop', { dataTransfer: data }); expect(await calls(page, 'folder.move')).toHaveLength(0);
+  await expect(page.getByRole('dialog', { name: '确认文件操作' })).toBeVisible();
+  await page.getByRole('dialog', { name: '确认文件操作' }).getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: '移动到当前实际目录 源项目', exact: true }).dispatchEvent('drop', { dataTransfer: data });
   const form = page.getByRole('form', { name: '确认实际移动' }); await expect(form).toBeVisible();
   expect(await calls(page, 'folder.move')).toHaveLength(0); await form.getByRole('button', { name: '取消', exact: true }).click();

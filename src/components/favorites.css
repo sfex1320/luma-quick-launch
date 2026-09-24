@@ -25,3 +25,14 @@
 .shortcut-badge{position:absolute;right:1px;bottom:1px;z-index:5;pointer-events:none;font-size:8px;font-weight:600;line-height:1;padding:2.5px 4px;border-radius:5px;background:#2f4a38e6;color:#eaf5e2;letter-spacing:.2px;max-width:58px;overflow:hidden;text-overflow:ellipsis}
 :root[data-theme="dark"] .shortcut-badge{background:#0f231bea;color:#cfe4c6}
 .dock-action .shortcut-badge{right:0;bottom:0}
+
+/* Round 23: reserve count and controls; truncate names and shrink the filter. */
+.stack-panel>header{min-width:0;gap:6px}
+.stack-heading{flex:1 1 0;min-width:0;gap:6px}
+.stack-heading>.project-dot{flex:none}
+.stack-heading>.stack-project-name{flex:0 1 auto;min-width:0;max-width:140px;font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stack-heading>.stack-entry-count{flex:none;font-size:11px;line-height:18px;color:var(--muted);white-space:nowrap;margin:0}
+.stack-heading>.stack-filter{flex:1 1 100px;min-width:32px;width:100px;max-width:132px;margin-left:0}
+.stack-header-actions{flex:0 1 auto;min-width:0;max-width:48%}
+.stack-header-actions>.icon-button{flex:none}
+.stack-header-actions>.stack-current-name{flex:1 1 auto;min-width:0;font-size:12px;line-height:18px}

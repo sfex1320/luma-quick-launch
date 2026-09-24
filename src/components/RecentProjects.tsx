@@ -24,7 +24,7 @@ export function RecentProjects({ projectId, item, limit, filter, leadingColumns 
   }, [recent, error, refresh, item.name]);
   const visible = recent && filter?.trim() ? recent.entries.filter(entry => fuzzyIncludes(filter, entry.name)) : recent?.entries ?? [];
   return <div ref={root} className="folder-column" aria-label={`${item.name} 最近项目`}>
-    <div className="recent-list" {...pan}>{visible.map(entry => <div className="recent-row" key={entry.id}><button data-item-id={entry.id} data-project-id={projectId} data-recent-item-id={item.id} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={e => { if (e.detail === 0) onOpen(entry.id); }} title={entry.path}><ItemIcon kind={entry.kind} size={30}/><span><strong>{entry.name}</strong><small>{entry.path}</small></span></button>{renderAccessory?.(entry)}</div>)}</div>
+    <div className="recent-list" {...pan}>{visible.map(entry => <div className="recent-row" key={entry.id}><button data-item-id={entry.id} data-project-id={projectId} data-recent-item-id={item.id} {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={e => { if (e.detail === 0) onOpen(entry.id); }} title={`${entry.name}\n${entry.path}`}><ItemIcon kind={entry.kind} size={30}/><span><strong title={entry.name}>{entry.name}</strong><small title={entry.path}>{entry.path}</small></span></button>{renderAccessory?.(entry)}</div>)}</div>
     {!recent && !error && <p className="folder-browser-message">正在读取最近项目…</p>}{recent && !recent.entries.length && <p className="folder-browser-message">暂无可关联的最近项目</p>}{recent && recent.entries.length > 0 && !visible.length && <p className="folder-browser-message">当前菜单没有匹配「{filter?.trim()}」的内容</p>}<p className="directory-limit" role="status">{error || recent?.note}</p>
   </div>;
 }

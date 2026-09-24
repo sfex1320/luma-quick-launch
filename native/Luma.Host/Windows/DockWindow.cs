@@ -76,7 +76,8 @@ public sealed class DockWindow : Window, IHostClient
         {
             Log.Error(message);
             MessageBox.Show(message, "Luma WebView2", MessageBoxButton.OK, MessageBoxImage.Error);
-            Application.Current.Shutdown();
+            if (Application.Current is App app) app.RequestShutdown("dock-webview-fatal", 1);
+            else Application.Current.Shutdown(1);
         }, () =>
         {
             _reloadingRenderer = true;

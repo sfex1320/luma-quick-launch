@@ -34,6 +34,17 @@ public sealed class RecentProjectServiceTests : IDisposable
     { Assert.Equal(code, (await Assert.ThrowsAsync<FolderOperationException>(work)).Code); }
 
     [Fact]
+    public async Task CapabilitiesResolveSavedSoftwareWithoutReadingHistory()
+    {
+        Assert.True(await _service.SupportsRecentAsync("dock", "p", "main"));
+        SaveApp(@"C:\Apps\Kimi Code.lnk");
+        _source.Executable = @"C:\Apps\Kimi.exe";
+        Assert.False(await _service.SupportsRecentAsync("dock", "p", "main"));
+        Assert.Equal(0, _source.Reads);
+        Assert.Empty(_opened);
+    }
+
+    [Fact]
     public async Task PhotoshopOnlyGetsExistingDedicatedFormatsSortedAndDeduplicated()
     {
         Add(@"C:\Art\old.psd", 10); Add(@"C:\Art\recent.psb", 1); Add(@"C:\Art\RECENT.psb", 2);

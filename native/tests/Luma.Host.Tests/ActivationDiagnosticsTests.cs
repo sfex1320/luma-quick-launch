@@ -20,6 +20,7 @@ public class ActivationDiagnosticsTests
         Assert.Contains("physical=", snapshot);
         Assert.Contains("cursorFlags=", snapshot);
         Assert.Contains("inputAgeMs=", snapshot);
+        Assert.Contains("lastInputTick=", snapshot);
         Assert.Contains("inputSource=", snapshot);
         Assert.Contains("hotspot=0x0 actualRect=unavailable", snapshot);
     }

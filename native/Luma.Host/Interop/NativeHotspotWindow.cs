@@ -26,6 +26,8 @@ internal sealed class NativeHotspotWindow : IDisposable
     private bool _leftPressStartedHere;
     private bool _disposed;
     private OleDropRegistration? _dropRegistration;
+    private readonly HoverMovementGate _hoverMovement = new();
+    internal bool CurrentMoveCanStartHover { get; private set; }
 
     public event EventHandler? Activated;
     public event EventHandler? CursorEnter;
@@ -44,12 +46,23 @@ internal sealed class NativeHotspotWindow : IDisposable
     {
         NativeHotspotWindow? owner;
         lock (Windows) Windows.TryGetValue(hwnd, out owner);
-        return owner is not null ? owner.InstanceWndProc(hwnd, msg, wParam, lParam) : DefWindowProc(hwnd, msg, wParam, lParam);
+        try
+        {
+            return owner is not null ? owner.InstanceWndProc(hwnd, msg, wParam, lParam) : DefWindowProc(hwnd, msg, wParam, lParam);
+        }
+        catch (Exception ex)
+        {
+            // Preserve evidence before an exception crosses the reverse P/Invoke boundary.
+            // Do not continue dispatching with partially-mutated activation state.
+            Log.Error($"热区窗口回调异常 pid={Environment.ProcessId} hwnd=0x{hwnd:X} message=0x{msg:X} {ex}");
+            throw;
+        }
     }
 
     public void Create(int x, int y, int width, int height)
     {
         if (_hwnd != IntPtr.Zero) return;
+        ResetHoverMovement();
         _hwnd = CreateWindowEx(
             WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             ClassName, "Luma Hotzone",
@@ -76,6 +89,7 @@ internal sealed class NativeHotspotWindow : IDisposable
 
     public void SetRect(int x, int y, int width, int height)
     {
+        ResetHoverMovement();
         _leftPressStartedHere = false;
         if (_hwnd == IntPtr.Zero) return;
         var positioned = SetWindowPos(_hwnd, HwndTopmost, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -84,6 +98,7 @@ internal sealed class NativeHotspotWindow : IDisposable
 
     public void HideWindow()
     {
+        ResetHoverMovement();
         _trackingLeave = false;
         _leftPressStartedHere = false;
         if (_hwnd != IntPtr.Zero) ShowWindow(_hwnd, SW_HIDE);
@@ -91,7 +106,15 @@ internal sealed class NativeHotspotWindow : IDisposable
 
     public void ShowWindowOnly()
     {
+        ResetHoverMovement();
         if (_hwnd != IntPtr.Zero) ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
+    }
+
+    private void ResetHoverMovement()
+    {
+        var available = Win32.GetCursorPos(out var point);
+        _hoverMovement.Reset(available, point.X, point.Y);
+        CurrentMoveCanStartHover = false;
     }
 
     private IntPtr InstanceWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam)
@@ -113,6 +136,10 @@ internal sealed class NativeHotspotWindow : IDisposable
                 _leftPressStartedHere = false;
                 break;
             case Win32.WM_MOUSEMOVE:
+                var positionAvailable = Win32.GetCursorPos(out var position);
+                var sourceAvailable = ActivationDiagnostics.ReadMouseMessageSource(out var device, out var origin);
+                CurrentMoveCanStartHover = _hoverMovement.Observe(positionAvailable, position.X, position.Y,
+                    sourceAvailable, device, origin);
                 if (!_trackingLeave)
                 {
                     var track = new Win32.TRACKMOUSEEVENT
@@ -124,12 +151,13 @@ internal sealed class NativeHotspotWindow : IDisposable
                     Win32.TrackMouseEvent(ref track);
                     _trackingLeave = true;
                     var packed = lParam.ToInt64();
-                    Log.Info($"热区原生 WM_MOUSEMOVE enter hwnd=0x{hwnd:X} client={unchecked((short)(packed & 0xffff))},{unchecked((short)((packed >> 16) & 0xffff))} {ActivationDiagnostics.Capture(hwnd)}");
+                    Log.Info($"热区原生 WM_MOUSEMOVE enter hwnd=0x{hwnd:X} client={unchecked((short)(packed & 0xffff))},{unchecked((short)((packed >> 16) & 0xffff))} hoverStartEligible={CurrentMoveCanStartHover} {ActivationDiagnostics.Capture(hwnd)}");
                     CursorEnter?.Invoke(this, EventArgs.Empty);
                 }
                 CursorMoved?.Invoke(this, EventArgs.Empty);
                 break;
             case Win32.WM_MOUSELEAVE:
+                ResetHoverMovement();
                 _trackingLeave = false;
                 _leftPressStartedHere = false;
                 Log.Info($"热区原生 WM_MOUSELEAVE hwnd=0x{hwnd:X}");

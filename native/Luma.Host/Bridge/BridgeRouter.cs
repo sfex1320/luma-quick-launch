@@ -216,6 +216,16 @@ public sealed class BridgeRouter
                 case "shell.getIcon":
                     await HandleGetIcon(source, id, parameters);
                     return;
+                case "shell.getAppCapabilities":
+                    if (parameters.ValueKind != JsonValueKind.Object || parameters.EnumerateObject().Count() != 2 ||
+                        !parameters.TryGetProperty("projectId", out var capProject) || capProject.ValueKind != JsonValueKind.String ||
+                        !parameters.TryGetProperty("itemId", out var capItem) || capItem.ValueKind != JsonValueKind.String)
+                    { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+                    RespondOk(source, id, new { recentSupported = await _recentProjects.SupportsRecentAsync(source.ClientId, capProject.GetString()!, capItem.GetString()!) });
+                    return;
+                case "folder.transfer":
+                    await HandleFolderTransfer(source, id, parameters, droppedPaths);
+                    return;
                 case "shell.getRecent":
                 case "shell.openRecent":
                     await HandleRecentProjects(source, id, method, parameters);
@@ -415,6 +425,55 @@ public sealed class BridgeRouter
         if (parameters.TryGetProperty("size", out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out size) || size is not (32 or 48 or 64 or 96)))
         { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
         RespondOk(source, id, new { dataUrl = await _icons.GetAsync(project.GetString()!, item.GetString()!, size) });
+    }
+
+    private async Task HandleFolderTransfer(IHostClient source, string id, JsonElement parameters, IReadOnlyList<string>? droppedPaths)
+    {
+        var required = new[] { "operation", "targetProject", "targetItem", "targetFolderId" };
+        var optional = new[] { "sourceProject", "sourceItem", "sourceEntryId" };
+        if (parameters.ValueKind != JsonValueKind.Object ||
+            parameters.EnumerateObject().Select(p => p.Name).Distinct().Count() != parameters.EnumerateObject().Count() ||
+            parameters.EnumerateObject().Any(p => !required.Contains(p.Name) && !optional.Contains(p.Name)) ||
+            required.Any(p => !parameters.TryGetProperty(p, out _)) ||
+            parameters.EnumerateObject().Any(p => p.Value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(p.Value.GetString()) || p.Value.GetString()!.Length > 200))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        string Value(string field) => parameters.GetProperty(field).GetString()!;
+        var operation = Value("operation");
+        var external = droppedPaths is { Count: > 0 };
+        var hasSource = parameters.TryGetProperty("sourceProject", out _);
+        if (operation is not ("copy" or "move" or "link") ||
+            (external ? droppedPaths!.Count > 100 || optional.Any(p => parameters.TryGetProperty(p, out _)) :
+             !hasSource || !parameters.TryGetProperty("sourceItem", out _)))
+        { RespondError(source, id, ProtocolErrors.InvalidRequest); return; }
+        if (!await FolderMutationRequests.WaitAsync(0)) { RespondError(source, id, ProtocolErrors.Busy); return; }
+        try
+        {
+            var targetProject = Value("targetProject"); var targetItem = Value("targetItem"); var folderId = Value("targetFolderId");
+            RespondOk(source, id, await _sync.RunBackground(async () =>
+            {
+                string[] paths;
+                Action? validate = null;
+                if (external) paths = droppedPaths!.ToArray();
+                else
+                {
+                    var project = Value("sourceProject"); var item = Value("sourceItem");
+                    string Resolve()
+                    {
+                        if (parameters.TryGetProperty("sourceEntryId", out var entry))
+                            return _folders.ResolveMutationEntry(source.ClientId, project, item, entry.GetString()!).Path;
+                        if (_store.LoadError is not null) throw new FolderOperationException(ProtocolErrors.IoError, "配置无法读取。");
+                        var saved = _store.Current.Projects.FirstOrDefault(p => p.Id == project)?.Items.FirstOrDefault(i => i.Id == item);
+                        if (saved is null || saved.Kind is not ("file" or "folder" or "app"))
+                            throw new FolderOperationException(ProtocolErrors.InvalidRequest, "请选择已保存的文件、文件夹或软件入口。");
+                        return saved.Path;
+                    }
+                    var path = Resolve(); paths = [path];
+                    validate = () => { if (!StringComparer.OrdinalIgnoreCase.Equals(Resolve(), path)) throw new FolderOperationException(ProtocolErrors.InvalidRequest, "源入口已变更，请重新拖入。"); };
+                }
+                return await _folderMutations.TransferAsync(source.ClientId, targetProject, targetItem, folderId, paths, operation, validate);
+            }));
+        }
+        finally { FolderMutationRequests.Release(); }
     }
 
     private async Task HandleFolderMutation(IHostClient source, string id, string method, JsonElement parameters)

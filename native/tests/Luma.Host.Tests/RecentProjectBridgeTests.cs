@@ -31,6 +31,16 @@ public sealed class RecentProjectBridgeTests : IDisposable
         return JsonDocument.Parse(_client.Sent.Last()).RootElement.Clone();
     }
     [Fact]
+    public async Task CapabilitiesOnlyAcceptSavedIdentity()
+    {
+        var response = await Send("shell.getAppCapabilities", new { projectId = "p", itemId = "main" });
+        Assert.True(response.GetProperty("result").GetProperty("recentSupported").GetBoolean());
+        response = await Send("shell.getAppCapabilities", new { projectId = "p", itemId = "main", path = @"C:\Apps\Other.exe" });
+        Assert.Equal("INVALID_REQUEST", response.GetProperty("error").GetProperty("code").GetString());
+        Assert.Empty(_opened);
+    }
+
+    [Fact]
     public async Task GetAndOpenUseOnlySavedItemAndIssuedCapability()
     {
         var result = await Send("shell.getRecent", new { projectId = "p", itemId = "main", limit = 6 });

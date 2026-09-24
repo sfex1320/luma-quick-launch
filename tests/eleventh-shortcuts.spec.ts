@@ -20,6 +20,7 @@ async function host(page: Page, initial = seed) {
       if (req.method === 'app.getState') result = state;
       else if (req.method === 'app.saveState') { state = { ...req.params.state, revision: state.revision + 1 }; result = state; }
       else if (req.method === 'website.inspect') result = { url: 'https://example.com/work', title: 'Example 工作台', dataUrl: icon };
+      else if (req.method === 'shell.getAppCapabilities') result = { recentSupported: true };
       else if (req.method === 'shell.getRecent') result = { entries: Array.from({ length: req.params.limit }, (_, i) => ({ id: `r${i}`, name: `项目 ${i}`, path: `C:\\完整路径\\项目 ${i}.psd`, kind: 'file' })), note: 'Windows 最近项目' };
       else if (req.method === 'folder.list') result = { folderId: 'root', name: '目录', parentId: null, truncated: false, entries: Array.from({ length: 20 }, (_, i) => ({ id: `f${i}`, name: `文件 ${i}`, kind: 'file' })) };
       else if (req.method === 'window.sync') result = { applied: true };

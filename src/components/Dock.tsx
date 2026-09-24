@@ -1,3 +1,6 @@
+import { useFileTransfer } from './useFileTransfer';
+import { useAppCapabilities, appCapabilityKey } from './useAppCapabilities';
+import { transferOperation, transferLabel } from '../core/fileTransfer';
 import { hasUrlText } from '../core/urls';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import { ChevronDown, Search, Settings2, X, Pencil, Check, RefreshCw, ArrowLeft } from 'lucide-react';
@@ -23,6 +26,9 @@ const DOCK_SPEEDS = { relaxed: { enter: 650, exit: 600, stack: 200 }, standard: 
 interface Props { onFavorite?: (name: string, color: Color, items: LaunchItem[]) => void; projects: Project[]; preferences: Preferences; onOpen: (p: Project, item: LaunchItem) => void | boolean | Promise<boolean | void>; onSettings: () => void; onSearch: () => void; onDropFiles?: (files: File[], projectId?: string) => Promise<void>; onDropText?: (text: string, projectId?: string) => Promise<void>; onGroup?: (sourceId: string, targetId: string) => void; onUngroup?: (projectId: string) => void; onReorder?: (sourceId: string, targetId: string, after: boolean) => void; onRemove?: (projectId: string, itemId?: string) => void; onMoveItem?: (sourceId: string, itemId: string, targetId?: string) => void; overlay?: boolean }
 export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings, onSearch, onDropFiles, onDropText, onGroup, onUngroup, onReorder, onRemove, onMoveItem, overlay = false }: Props) {
   const pan = useRightPan('x');
+  const capabilities = useAppCapabilities(projects);
+  const canBrowse = (project: Project, item: LaunchItem) => item.kind === 'folder' || (item.kind === 'app' && capabilities.has(appCapabilityKey(project.id, item.id)));
+  const canStack = (project: Project) => editing || project.items.length > 1 || canBrowse(project, project.items[0]);
   const favoriteKeys = useMemo(() => new Set(projects.filter(project => project.favorite).map(project => favoriteSignature(project.items))), [projects]);
   const { badgeByAction, badgeByProject, badgeByItem } = useMemo(() => {
     const byAction = new Map<string, string>(), byProject = new Map<string, string>(), byItem = new Map<string, string>();
@@ -39,7 +45,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
   const session = useRef(new Map<string, { browse: string | null; trails: Map<string, string[]> }>());
   const memoryKey = (project: Project) => JSON.stringify([project.id, project.items.map(item => [item.id, referenceKey(item.path)])]);
   const remember = (project: Project) => { const key = memoryKey(project); let saved = session.current.get(key); if (!saved) saved = { browse: null, trails: new Map() }; session.current.delete(key); session.current.set(key, saved); while (session.current.size > 32) session.current.delete(session.current.keys().next().value!); return saved; };
-  const [directoryBusy, setDirectoryBusy] = useState(false), [contextOpen, setContextOpen] = useState(false);
+  const [directoryOperationBusy, setDirectoryBusy] = useState(false), [contextOpen, setContextOpen] = useState(false);
   useEffect(() => { const listener = (event: Event) => setContextOpen(!!(event as CustomEvent).detail?.open); window.addEventListener('luma:context-menu', listener); return () => window.removeEventListener('luma:context-menu', listener); }, []);
   useEffect(() => { const listener = (event: Event) => setDirectoryBusy(!!(event as CustomEvent).detail?.busy); window.addEventListener('luma:directory-operation', listener); return () => window.removeEventListener('luma:directory-operation', listener); }, []);
   const [context, setContext] = useState<{ x: number; y: number; actions: MenuAction[] } | null>(null);
@@ -75,10 +81,14 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
   const browseItem = active?.items.find(item => item.id === browseItemId) ?? (active?.items.length === 1 && ['folder','app'].includes(active.items[0].kind) ? active.items[0] : undefined);
   const [dragging, setDragging] = useState(false), [pointerInside, setPointerInside] = useState(false);
   const clearPress = () => { const prev = press.current; if (prev) { clearTimeout(prev.timer); press.current = null; if (prev.button.hasPointerCapture(prev.pointer)) prev.button.releasePointerCapture(prev.pointer); } setPressing(false); setHighlight(null); };
+  const transfer = useFileTransfer(projects, clearPress);
+  const directoryBusy = directoryOperationBusy || transfer.busy;
+  const sourceDrag = useRef<{project: Project; pointer: number; button: HTMLButtonElement} | null>(null);
+  const [dragOperation, setDragOperation] = useState<'copy' | 'move' | 'link'>('copy');
   const clearGroupDrag = () => { const record = groupDrag.current; groupDrag.current = null; if (record?.button.hasPointerCapture(record.pointer)) record.button.releasePointerCapture(record.pointer); setGroupSource(null); setGroupTarget(null); };
   const close = () => { menuGeneration.current++; clearPress(); clearGroupDrag(); setFilter(''); setStack(null); setBrowseItemId(null); setMenuError(''); setMore(false); };
-  const showStack = (id: string | null) => { menuGeneration.current++; const project = projects.find(project => project.id === id); setFilter(''); setBrowseItemId(project ? remember(project).browse : null); setMenuError(''); setStack(id); setMore(false); };
-  const selectBrowse = (id: string | null) => { if (active) remember(active).browse = id; setFilter(''); setBrowseItemId(id); };
+  const showStack = (id: string | null) => { menuGeneration.current++; const project = projects.find(project => project.id === id); if (project && !canStack(project)) return; setFilter(''); setBrowseItemId(project ? remember(project).browse : null); setMenuError(''); setStack(id); setMore(false); };
+  const selectBrowse = (id: string | null) => { if (active && id && !canBrowse(active, active.items.find(item => item.id === id)!)) return; if (active) remember(active).browse = id; setFilter(''); setBrowseItemId(id); };
   const collapseAfterLaunch = () => { preserve(); setVisible(false); };
   // Independent surfaces: primary first on reveal, submenu first on collapse.
   const motionDurations = DOCK_SPEEDS[p.motionSpeed ?? 'standard'];
@@ -118,20 +128,20 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     return () => { observer.disconnect(); clearTimeout(hideTimer.current); clearTimeout(showTimer.current); clearTimeout(dragLeaveTimer.current); if (press.current) clearTimeout(press.current.timer); };
   }, []);
   useEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { clearTimeout(showTimer.current); if (editing) { clearPress(); clearGroupDrag(); setEditing(false); } else if (stack || more) close(); else { close(); setVisible(false); } } };
-    const blur = () => { clearGroupDrag(); clearPress(); setKeyboard(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { if (directoryBusy) return; clearTimeout(showTimer.current); if (editing) { clearPress(); clearGroupDrag(); setEditing(false); } else if (stack || more) close(); else { close(); setVisible(false); } } };
+    const blur = () => { const source = sourceDrag.current; sourceDrag.current = null; if (source?.button.hasPointerCapture(source.pointer)) source.button.releasePointerCapture(source.pointer); setDragging(false); clearGroupDrag(); clearPress(); setKeyboard(false); };
     const cascade = () => { if (press.current) press.current.needsMove = true; };
     window.addEventListener('keydown', key); window.addEventListener('blur', blur); window.addEventListener('luma:cascade-layout', cascade);
     return () => { window.removeEventListener('keydown', key); window.removeEventListener('blur', blur); window.removeEventListener('luma:cascade-layout', cascade); };
-  }, [stack, more, editing]);
+  }, [stack, more, editing, directoryBusy]);
   useEffect(() => subscribeHost(event => { if (overlay && event.event === 'window.visibility') { if (event.data.visibilityId !== undefined && lastVisibility.current !== undefined && event.data.visibilityId < lastVisibility.current) return; lastVisibility.current = event.data.visibilityId; clearTimeout(hideTimer.current); clearTimeout(showTimer.current); clearPress(); setVisible(event.data.visible); setHostVisibilityId(event.data.visibilityId); setVisibilityEpoch(epoch => epoch + 1); if (!event.data.visible) { clearGroupDrag(); setEditing(false); setDragging(false); setKeyboard(false); } } }), [overlay]);
   useEffect(() => {
     if (!active || active.items.length < 2 || !highlight || !press.current?.long) return;
-    const item = active.items.find(item => item.id === highlight && ['folder','app'].includes(item.kind));
+    const item = active.items.find(item => item.id === highlight && canBrowse(active, item));
     if (!item || browseItemId === item.id) return;
     const timer = setTimeout(() => { menuGeneration.current++; if (press.current) press.current.needsMove = true; selectBrowse(item.id); }, 450);
     return () => clearTimeout(timer);
-  }, [active, highlight, browseItemId]);
+  }, [active, highlight, browseItemId, capabilities]);
   // Commit-time cleanup is essential: a passive effect can send yesterday's
   // `visible=false` with today's expanded DOM and immediately hide the HWND.
   useLayoutEffect(() => {
@@ -163,7 +173,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     return () => { disposed = true; mutations.disconnect(); observer.disconnect(); window.removeEventListener('resize', sync); element.removeEventListener('animationend', sync); };
   }, [visible, present, visibilityEpoch, hostVisibilityId, stack, more, p, overlay, projects, dragging, importing, runningTest, pressing, keyboard, editing, directoryBusy, contextOpen, context, pointerInside, getTranslationY, resumeEntrance, wrap]);
   const begin = (event: PointerEvent<HTMLButtonElement>, project: Project, origin: 'project' | 'entry' = 'project') => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || directoryBusy) return;
     clearPress(); clearTimeout(hideTimer.current);
     if (editing && origin === 'project') {
       clearGroupDrag(); event.currentTarget.setPointerCapture(event.pointerId);
@@ -178,12 +188,17 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     setPressing(true);
   };
   const move = (event: PointerEvent) => {
+    if (sourceDrag.current) { setDragOperation(transferOperation(event)); return; }
     const drag = groupDrag.current;
     if (drag) { drag.moved ||= Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 6; const tile = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-drop-project]'); const target = tile?.dataset.dropProject; if (tile) { const r = tile.getBoundingClientRect(), ratio = (event.clientX - r.left) / r.width; setGroupIntent(ratio < .22 ? 'before' : ratio > .78 ? 'after' : 'merge'); } setGroupTarget(drag.moved && target !== drag.source ? target ?? null : null); return; }
     const record = press.current; if (!record) return;
     if (event.clientX !== record.lastX || event.clientY !== record.lastY) record.needsMove = false;
     record.lastX = event.clientX; record.lastY = event.clientY;
-    if (!record.long && Math.hypot(event.clientX - record.x, event.clientY - record.y) > 6) { clearPress(); return; }
+    if (!record.long && Math.hypot(event.clientX - record.x, event.clientY - record.y) > 6) {
+      clearPress();
+      if ((record.origin === 'project' || record.button.closest('.dock-split')) && !editing && record.project.items.length === 1 && record.project.items[0].kind !== 'url') { sourceDrag.current = {project: record.project, pointer: event.pointerId, button: record.button}; record.button.setPointerCapture(event.pointerId); setDragging(true); setDragOperation(transferOperation(event)); }
+      return;
+    }
     const hit = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-item-id]');
     setHighlight(record.long && hit?.dataset.projectId === record.project.id ? hit.dataset.itemId ?? null : null);
   };
@@ -215,6 +230,8 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     catch (error) { if (generation === menuGeneration.current) setMenuError((error as Error).message); }
   };
   const end = (event: PointerEvent) => {
+    const fileDrag = sourceDrag.current;
+    if (fileDrag) { sourceDrag.current = null; setDragging(false); const target = document.elementFromPoint(event.clientX, event.clientY); if (fileDrag.button.hasPointerCapture(fileDrag.pointer)) fileDrag.button.releasePointerCapture(fileDrag.pointer); if (target?.closest('.dock-container')) transfer.queue(undefined, {projectId:fileDrag.project.id,itemId:fileDrag.project.items[0].id}, target, event); return; }
     const drag = groupDrag.current;
     if (drag) {
       const tile = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-drop-project]');
@@ -283,9 +300,9 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
     window.addEventListener('keydown', key, true);
     return () => { unsubscribe(); window.removeEventListener('keydown', key, true); };
   }, [p.shortcuts, projects, visible, overlay, directoryBusy, dragging, onSearch, onSettings, onOpen]);
-  const renderProject = (project: Project) => <div className={`dock-slot ${groupSource === project.id ? 'group-drag-source' : ''} ${groupTarget === project.id ? 'group-drop-target drop-' + groupIntent : ''}`} data-drop-project={project.id} key={project.id} style={{ width: layout.cell }} onContextMenu={event => { if (!(event.target as HTMLElement).closest('.split-folder-actions')) return; event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [{ label: '打开', action: () => open(project, project.items[0]) }, { label: '进入子菜单', action: () => showStack(project.id) }, { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path); } }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true }] }); }}>
-          <SplitFolderTile enabled={!editing && (project.items.length > 1 || ['folder','app'].includes(project.items[0].kind))} enterOnly={isSoftwareGroup(project)} software={project.items.length === 1 && project.items[0].kind === 'app'} className="dock-split" name={project.name} projectId={project.id} entryId={project.items[0].id} onOpen={() => open(project, project.items[0])} onEnter={() => showStack(project.id)} gesture={{ onPointerDown: event => begin(event, project, 'entry'), onPointerMove: move, onPointerUp: end, onPointerCancel: clearPress }}>
-          <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [ { label: '打开', action: () => open(project, project.items[0]) }, { label: '进入子菜单', action: () => showStack(project.id) }, { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path).catch(() => setMenuError('复制地址失败')); } }, { label: '整理快捷项', action: () => setEditing(true) }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true } ] }); }} onClick={event => { if (event.detail === 0) { if (editing || isSoftwareGroup(project)) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>
+  const renderProject = (project: Project) => <div className={`dock-slot ${groupSource === project.id ? 'group-drag-source' : ''} ${groupTarget === project.id ? 'group-drop-target drop-' + groupIntent : ''}`} data-drop-project={project.id} key={project.id} style={{ width: layout.cell }} onContextMenu={event => { if (!(event.target as HTMLElement).closest('.split-folder-actions')) return; event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [{ label: '打开', action: () => open(project, project.items[0]) }, ...(canStack(project) ? [{ label: '进入子菜单', action: () => showStack(project.id) }] : []), { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path); } }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true }] }); }}>
+          <SplitFolderTile canEnter={canStack(project)} enabled={!editing && (project.items.length > 1 || ['folder','app'].includes(project.items[0].kind))} enterOnly={isSoftwareGroup(project)} software={project.items.length === 1 && project.items[0].kind === 'app'} className="dock-split" name={project.name} projectId={project.id} entryId={project.items[0].id} onOpen={() => open(project, project.items[0])} onEnter={() => showStack(project.id)} gesture={{ onPointerDown: event => begin(event, project, 'entry'), onPointerMove: move, onPointerUp: end, onPointerCancel: clearPress }}>
+          <button className={`dock-project ${stack === project.id ? 'active' : ''}`} title={`${project.name} · 单击主目录，长按展开`} aria-label={`打开 ${project.name} 主目录，长按展开堆叠`} onPointerDown={event => begin(event, project)} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { sourceDrag.current = null; setDragging(false); clearPress(); clearGroupDrag(); }} onLostPointerCapture={() => { clearPress(); clearGroupDrag(); }} onContextMenu={event => { event.preventDefault(); clearPress(); setContext({ x: event.clientX, y: event.clientY, actions: [ { label: '打开', action: () => open(project, project.items[0]) }, ...(canStack(project) ? [{ label: '进入子菜单', action: () => showStack(project.id) }] : []), { label: '复制地址', action: () => { void navigator.clipboard.writeText(project.items[0].path).catch(() => setMenuError('复制地址失败')); } }, { label: '整理快捷项', action: () => setEditing(true) }, { label: '移除快捷项', action: () => onRemove?.(project.id), danger: true } ] }); }} onClick={event => { if (event.detail === 0) { if (editing || isSoftwareGroup(project)) showStack(project.id); else open(project, project.items[0]); } }} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); showStack(project.id); } }}>
             <GroupIcon projectId={project.id} items={project.items} color={project.color} size={layout.icon}/>
             <span className="dock-label">{project.name}</span>
           </button>
@@ -295,13 +312,13 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
           {editing && <button className="shortcut-remove" aria-label={`移除快捷项 ${project.name}`} title="仅移除快捷引用" onClick={() => onRemove?.(project.id)}><X size={12}/></button>}
         </div>;
   return <div ref={container} tabIndex={-1} aria-label="Luma 快捷面板" className={`dock-container ${overlay ? 'overlay-dock' : ''} ${dragging ? 'drop-active' : ''}`}
-    onPointerDownCapture={event => { if (!visible && (event.target as Element).closest('.dock-stage')) { event.preventDefault(); event.stopPropagation(); return; } if (event.button === 0 && !(event.target as Element).closest('button,input,textarea,select,[contenteditable]')) container.current?.focus({ preventScroll: true }); setKeyboard(false); }}
+    onPointerDownCapture={event => { if (transfer.busy && !(event.target as Element).closest('.file-transfer-panel')) { event.preventDefault(); event.stopPropagation(); return; } if (!visible && (event.target as Element).closest('.dock-stage')) { event.preventDefault(); event.stopPropagation(); return; } if (event.button === 0 && !(event.target as Element).closest('button,input,textarea,select,[contenteditable]')) container.current?.focus({ preventScroll: true }); setKeyboard(false); }}
     onKeyDownCapture={event => { if (event.key !== 'Escape') { setKeyboard(true); clearTimeout(hideTimer.current); } }}
     onFocusCapture={event => { if (event.target.matches(':focus-visible')) { setKeyboard(true); clearTimeout(hideTimer.current); } }}
     onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboard(false); }}
-    onDragOver={event => { if (!event.dataTransfer.types.includes('Files') && !hasUrlText(event.dataTransfer)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'; clearTimeout(hideTimer.current); clearTimeout(dragLeaveTimer.current); setDragging(true); setVisible(true); }}
+    onDragOver={event => { if (!transfer.accepts(event.dataTransfer.types) && !hasUrlText(event.dataTransfer)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editing ? 'copy' : transferOperation(event); setDragOperation(transferOperation(event)); clearTimeout(hideTimer.current); clearTimeout(dragLeaveTimer.current); setDragging(true); setVisible(true); }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { clearTimeout(dragLeaveTimer.current); dragLeaveTimer.current = setTimeout(() => setDragging(false), 120); } }}
-    onDrop={async event => { event.preventDefault(); event.stopPropagation(); clearTimeout(dragLeaveTimer.current); setDragging(false); const files = Array.from(event.dataTransfer.files); const projectId = (event.target as HTMLElement).closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject; if (importing) return; const text = event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain'); if (!files.length && !text) return; setImporting(true); try { if (files.length) await onDropFiles?.(files, projectId); else await onDropText?.(text, projectId); } finally { setImporting(false); } }}>
+    onDrop={async event => { event.preventDefault(); event.stopPropagation(); clearTimeout(dragLeaveTimer.current); setDragging(false); if (!editing && transfer.accepts(event.dataTransfer.types)) { transfer.drop(event); return; } const files = Array.from(event.dataTransfer.files); const projectId = (event.target as HTMLElement).closest<HTMLElement>('[data-drop-project]')?.dataset.dropProject; if (importing) return; const text = event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain'); if (!files.length && !text) return; setImporting(true); try { if (files.length) await onDropFiles?.(files, projectId); else await onDropText?.(text, projectId); } finally { setImporting(false); } }}>
     <div className="dock-hotzone" onPointerEnter={() => { clearTimeout(hideTimer.current); if (overlay && nativeMode) return; clearTimeout(showTimer.current); showTimer.current = setTimeout(() => setVisible(true), 180); }} onPointerLeave={() => clearTimeout(showTimer.current)}>
       <button data-native-hit aria-label={visible ? '收起面板' : '展开面板'} className="dock-handle" onClick={() => { clearTimeout(showTimer.current); clearTimeout(hideTimer.current); preserve(); setVisible(!visible); }}/>
     </div>
@@ -322,15 +339,15 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
         </div>
       </nav>
       {editing && <div data-native-hit className="dock-edit-hint">把图标拖到另一个图标上成组 · 完成整理后恢复快捷启动</div>}
-      {dragging && <div data-native-hit className="dock-drop-hint">松手添加快捷项 · 拖到已有图标可加入堆叠</div>}
+      {dragging && <div data-native-hit className="dock-drop-hint">{editing ? '松手添加快捷入口 · 拖到图标加入组' : `松手${transferLabel[dragOperation]}到文件夹 · Ctrl 复制 / Shift 移动 / Alt 快捷方式`}</div>}
       </div>
       <div className="dock-submenu-clip">
-      {active && <section aria-label={`${active.name} 文件夹堆叠`} data-native-hit className={`stack-panel glass material-${p.material}${!visible ? ' stack-leaving' : ''}${editing ? ' panel-editing' : ''}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 40}px)`, maxHeight: `calc(100vh - ${layout.height + 40}px)`, '--stack-out-ms': `${motionDurations.stack}ms`, '--stack-in-ms': `${motionDurations.stack}ms` } as CSSProperties}>
-        <header><div className="stack-heading"><span className={`project-dot dot-${active.color}`}/><strong>{active.name}</strong><span>{active.items.length} 个入口</span><input className="stack-filter" aria-label="筛选当前菜单" placeholder="筛选当前菜单…" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && filter) { event.stopPropagation(); setFilter(''); } }}/></div><div className="stack-header-actions">{folderHeader?.back && <button className="icon-button" aria-label="返回上一层" onClick={folderHeader.back}><ArrowLeft size={16}/></button>}{folderHeader && <strong className="stack-current-name" title={folderHeader.name}>{folderHeader.name}</strong>}{folderHeader && <button className="icon-button" aria-label="刷新目录" disabled={folderHeader.loading || folderHeader.disabled} onClick={folderHeader.refresh}><RefreshCw size={15}/></button>}<button className="icon-button" aria-label="关闭堆叠" onClick={close}><X size={16}/></button></div></header>
+      {active && <section aria-label={`${active.name} 文件夹堆叠`} data-drop-project={active.id} data-native-hit className={`stack-panel glass material-${p.material}${!visible ? ' stack-leaving' : ''}${editing ? ' panel-editing' : ''}`} style={{ '--menu-available-height': `calc(100vh - ${layout.height + 40}px)`, maxHeight: `calc(100vh - ${layout.height + 40}px)`, '--stack-out-ms': `${motionDurations.stack}ms`, '--stack-in-ms': `${motionDurations.stack}ms` } as CSSProperties}>
+        <header><div className="stack-heading"><span className={`project-dot dot-${active.color}`}/><strong className="stack-project-name" title={active.name}>{active.name}</strong><span className="stack-entry-count">{active.items.length} 个入口</span><input className="stack-filter" aria-label="筛选当前菜单" placeholder="筛选当前菜单…" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && filter) { event.stopPropagation(); setFilter(''); } }}/></div><div className="stack-header-actions">{folderHeader?.back && <button className="icon-button" aria-label="返回上一层" onClick={folderHeader.back}><ArrowLeft size={16}/></button>}{folderHeader && <strong className="stack-current-name" title={folderHeader.name}>{folderHeader.name}</strong>}{folderHeader && <button className="icon-button" aria-label="刷新目录" disabled={folderHeader.loading || folderHeader.disabled} onClick={folderHeader.refresh}><RefreshCw size={15}/></button>}<button className="icon-button" aria-label="关闭堆叠" onClick={close}><X size={16}/></button></div></header>
         {menuError && <p className="folder-browser-message" role="alert">{menuError}</p>}
         <div className="stack-body-cascade">
-        {(active.items.length > 1 || !browseItem) && <GroupEntryMenu project={active} editing={editing} filter={filter} badgeForItem={itemId => badgeByItem.get(`${active.id}:${itemId}`)} onRemove={itemId => onRemove?.(active.id, itemId)} onExtract={itemId => onMoveItem?.(active.id, itemId)} onMoveItem={onMoveItem} onUngroup={() => { onUngroup?.(active.id); close(); }} highlight={highlight} onOpen={item => open(active, item)} onBrowse={item => { menuGeneration.current++; selectBrowse(item.id); }} renderAccessory={editing && onFavorite ? item => <FavoriteButton name={item.name} active={favoriteKeys.has(favoriteSignature([item]))} onToggle={() => toggle(active, [item], item.name)}/> : undefined} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>}
-        {browseItem?.kind === 'app' && <RecentProjects onHeaderChange={setFolderHeader} filter={filter} renderAccessory={editing && onFavorite ? entry => <FavoriteButton name={entry.name} active={favoriteKeys.has(favoriteSignature([entry]))} onToggle={() => toggle(active, [entry], entry.name)}/> : undefined} leadingColumns={active.items.length > 1 ? 1 : 0} projectId={active.id} item={browseItem} limit={p.recentLimit ?? 8} onOpen={entryId => void openRecent(active.id, browseItem.id, entryId)} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>}
+        {(active.items.length > 1 || !browseItem || (browseItem.kind === 'app' && !canBrowse(active, browseItem))) && <GroupEntryMenu project={active} editing={editing} filter={filter} badgeForItem={itemId => badgeByItem.get(`${active.id}:${itemId}`)} onRemove={itemId => onRemove?.(active.id, itemId)} onExtract={itemId => onMoveItem?.(active.id, itemId)} onMoveItem={onMoveItem} onUngroup={() => { onUngroup?.(active.id); close(); }} highlight={highlight} onOpen={item => open(active, item)} onBrowse={item => { menuGeneration.current++; selectBrowse(item.id); }} renderAccessory={editing && onFavorite ? item => <FavoriteButton name={item.name} active={favoriteKeys.has(favoriteSignature([item]))} onToggle={() => toggle(active, [item], item.name)}/> : undefined} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>}
+        {browseItem?.kind === 'app' && capabilities.has(appCapabilityKey(active.id, browseItem.id)) && <RecentProjects onHeaderChange={setFolderHeader} filter={filter} renderAccessory={editing && onFavorite ? entry => <FavoriteButton name={entry.name} active={favoriteKeys.has(favoriteSignature([entry]))} onToggle={() => toggle(active, [entry], entry.name)}/> : undefined} leadingColumns={active.items.length > 1 ? 1 : 0} projectId={active.id} item={browseItem} limit={p.recentLimit ?? 8} onOpen={entryId => void openRecent(active.id, browseItem.id, entryId)} onPointerDown={event => begin(event, active, 'entry')} onPointerMove={move} onPointerUp={end} onPointerCancel={clearPress}/>}
         {browseItem?.kind === 'folder' && <FolderBrowser key={`${active.id}/${browseItem.id}/${browseItem.path}`} projectId={active.id} item={browseItem} color={active.color} highlight={highlight} filter={filter} editing={editing} actionBadges={badgeByAction} leadingColumns={active.items.length > 1 ? 1 : 0}
           onHeaderChange={setFolderHeader}
           initialTrail={remember(active).trails.get(browseItem.id)} onTrailChange={trail => { const saved = remember(active); saved.trails.delete(browseItem.id); saved.trails.set(browseItem.id, trail); while (saved.trails.size > 32) saved.trails.delete(saved.trails.keys().next().value!); }}
@@ -350,6 +367,7 @@ export function Dock({ onFavorite, projects, preferences: p, onOpen, onSettings,
         onClick={event => { if (!editing || event.detail === 0) showStack(project.id); }}><GroupIcon projectId={project.id} items={project.items} color={project.color} size={30}/>{project.name}<ChevronDown size={14}/></button>)}</section>}
       </div>
     </div>}
+    {transfer.ui}
     {context && <ContextMenu {...context} onClose={() => setContext(null)}/>}
   </div>;
 }

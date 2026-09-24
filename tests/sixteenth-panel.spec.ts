@@ -21,6 +21,7 @@ async function setup(page: Page, options: { grouped?: boolean; shortcuts?: Array
         const child = !!req.params.folderId;
         setTimeout(() => respond({ folderId: child ? 'child-token' : 'root-token', name: child ? '子目录' : '目录布局', parentId: child ? 'root-token' : null, truncated: false, entries: child ? [{ id: 'nested', name: '内部.txt', kind: 'file' }] : [{ id: 'child', name: '子目录', kind: 'folder' }, ...Array.from({ length: 16 }, (_, i) => ({ id: `file-${i + 1}`, name: `文件${i + 1}.txt`, kind: 'file' }))] }), 5); return;
       }
+      if (req.method === 'shell.getAppCapabilities') { setTimeout(() => respond({ recentSupported: true }), 1); return; }
       if (req.method === 'shell.getRecent') { setTimeout(() => respond({ entries: [{ id: 'r1', name: '近期设计.psd', path: 'C:\\Fixture\\近期设计.psd', kind: 'file' }], note: 'Windows 最近项目' }), 5); return; }
       setTimeout(() => respond(req.method === 'window.sync' ? { applied: true } : req.method === 'project.detectTest' ? { task: null } : req.method === 'shell.getIcon' || req.method === 'folder.getThumbnail' ? { dataUrl: null } : { accepted: true }), 2);
     } };

@@ -37,11 +37,11 @@ try {
     let delta = '';
     for (let i = 0; i < 20; i++) {
       await wait(100); delta = (await readLog()).slice(before);
-      if (delta.includes('驻留判定') || delta.includes('热区离开')) break;
+      if (delta.includes('驻留判定') || delta.includes('热区离开') || delta.includes('忽略无有效鼠标位移来源')) break;
     }
     assert.match(delta, /WM_MOUSEMOVE enter.*client=2,2.*inputSource=/);
     // Windows can deliver a real leave immediately, cancelling the timer before expiry.
-    assert(delta.includes('热区离开') || /驻留判定 allowed=False.*sampledCursor=.*expectedRect=.*physical=.*inputAgeMs=.*actualRect=/.test(delta));
+    assert(delta.includes('热区离开') || delta.includes('忽略无有效鼠标位移来源') || /驻留判定 allowed=False.*sampledCursor=.*expectedRect=.*physical=.*inputAgeMs=.*actualRect=/.test(delta));
     await wait(300);
     delta = (await readLog()).slice(before);
     assert(!delta.includes('浮岛唤出请求'), 'A move message outside the physical hotspot cannot reveal');

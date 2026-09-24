@@ -114,10 +114,16 @@ public sealed class EdgeActivation : IDisposable
         if (!Win32.GetCursorPos(out var point) || !Within(layout, point)) return;
         _hoverDwell.Observe(point.X, point.Y, Environment.TickCount64);
         _hover = layout; _dwellTimer.Start();
+        Log.Info($"热区有效位移开始驻留 monitor=0x{layout.Monitor:X} anchor={point.X},{point.Y} {ActivationDiagnostics.Capture(_hotspots[layout.Monitor].Window.Handle)}");
     }
     private void ContinueHover(IntPtr monitor)
     {
         if (Paused || (_fullscreenMonitor != IntPtr.Zero && monitor == _fullscreenMonitor)) return;
+        // Native tracking can survive a layout change or a synthetic enter. A later genuine
+        // move may start a fresh dwell without waiting for another WM_MOUSELEAVE/enter pair.
+        if (_hover is null && _hotspots.TryGetValue(monitor, out var current) &&
+            current.Window.CurrentMoveCanStartHover && AllowsHoverAtCursor())
+            BeginHover(current.Layout);
         if (_hover is not { } hover || hover.Monitor != monitor) return;
         if (!Win32.GetCursorPos(out var point) || !Within(hover, point))
         { _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset(); return; }
@@ -196,6 +202,7 @@ public sealed class EdgeActivation : IDisposable
     }
     private void UpdateHotspotVisibility()
     {
+        _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset();
         foreach (var pair in _hotspots)
             if (Paused || (_fullscreenMonitor != IntPtr.Zero && pair.Key == _fullscreenMonitor)) pair.Value.Window.HideWindow();
             else pair.Value.Window.ShowWindowOnly();
@@ -231,6 +238,7 @@ public sealed class EdgeActivation : IDisposable
                 {
                     Log.Info($"热区进入 monitor=0x{key:X} paused={Paused} fullscreen=0x{_fullscreenMonitor:X}");
                     if (Paused || (_fullscreenMonitor != IntPtr.Zero && key == _fullscreenMonitor) || !_hotspots.TryGetValue(key, out var current)) return;
+                    if (!current.Window.CurrentMoveCanStartHover) { Log.Info("忽略无有效鼠标位移来源的热区进入"); return; }
                     if (!AllowsHoverAtCursor()) { Log.Info("忽略主动收起后的原地热区进入"); return; }
                     BeginHover(current.Layout);
                 };
@@ -249,19 +257,8 @@ public sealed class EdgeActivation : IDisposable
             _hotspots[layout.Monitor] = (pair.Window, layout);
         }
         UpdateHotspotVisibility();
-        // SetWindowPos can preserve native TrackMouseEvent state. Re-arm once after
-        // a layout event when the cursor still hits the hotspot; no resident polling.
-        if (!Paused && Win32.GetCursorPos(out var point))
-        {
-            var hit = Win32.WindowFromPoint(point);
-            var hovered = _hotspots.Values.FirstOrDefault(p => p.Window.Handle == hit);
-            Log.Info($"热区重排完成 cursor={point.X},{point.Y} hit=0x{hit:X} hotspot={hovered.Layout?.Monitor}");
-            if (hovered.Layout is { } layout && (_fullscreenMonitor == IntPtr.Zero || layout.Monitor != _fullscreenMonitor) && AllowsHoverAtCursor())
-            {
-                BeginHover(layout);
-                Log.Info($"热区重排后恢复驻留 monitor=0x{layout.Monitor:X}");
-            }
-        }
+        // Relocation alone never starts hover: a stationary pointer may now be covered by
+        // the moved HWND. CursorMoved rearms only after a qualifying physical mouse event.
     }
     public void Dispose()
     {

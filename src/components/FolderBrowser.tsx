@@ -41,6 +41,7 @@ export function FolderBrowser(props: Props) {
     const next = [{ name: current.current.item.name }]; levelsRef.current = next; setLevels(next); setLimit('');
     setGeneration(value => value + 1); window.dispatchEvent(new Event('luma:cascade-layout'));
   }, []);
+  useEffect(() => { window.addEventListener('luma:files-transferred', refreshTree); return () => window.removeEventListener('luma:files-transferred', refreshTree); }, [refreshTree]);
   const actions = useDirectoryActions({ projectId: props.projectId, itemId: props.item.id, onOpen: props.onOpen, onMutated: refreshTree, cancelGesture: props.onPointerCancel });
   const actionsRef = useRef(actions); actionsRef.current = actions;
   const enter = useCallback((index: number, folderId: string, name: string) => {
@@ -122,7 +123,7 @@ function FolderPane({ projectId, item, color, highlight, filter, editing = false
   }, [listing, projectId, item.id, item.launch]);
   const pan = useMenuPan();
   const visibleEntries = listing && filter.trim() ? listing.entries.filter(entry => fuzzyIncludes(filter, entry.name)) : listing?.entries ?? [];
-  return <div className="folder-browser folder-column" data-folder-level={index} aria-label={`${listing?.name ?? level.name} 目录层`}
+  return <div className="folder-browser folder-column" data-folder-level={index} data-transfer-project={listing ? projectId : undefined} data-transfer-item={listing ? item.id : undefined} data-transfer-folder={listing?.folderId} data-transfer-name={listing?.name} aria-label={`${listing?.name ?? level.name} 目录层`}
     onContextMenu={event => { if (listing) actions.openContext(event, listing); }}>
     {loading && <p className="folder-browser-message folder-loading" role="status">正在读取目录…</p>}
     {error && <div className="folder-browser-message" role="alert"><p>{error}</p><button className="text-button" onClick={() => setReload(n => n + 1)}>重新读取</button></div>}
@@ -133,7 +134,7 @@ function FolderPane({ projectId, item, color, highlight, filter, editing = false
             {...gesture} onLostPointerCapture={gesture.onPointerCancel} onClick={event => { if (event.detail === 0) onOpen(entry.id); }}>
             <FolderEntryIcon projectId={projectId} itemId={item.id} entry={entry} color={color}/><span><strong>{entry.name}</strong><small>{entry.kind === 'folder' ? '文件夹' : entry.kind === 'app' ? '软件 / 快捷方式' : '文件'}</small></span>
           </button>;
-          return <div className="directory-row" key={entry.id} draggable={!actions.running} onPointerDownCapture={event => actions.trackPress(event, entry)} onDragStart={event => actions.dragStart(event, entry)} onDragEnd={actions.dragEnd}
+          return <div className="directory-row" key={entry.id} data-transfer-project={entry.kind === 'folder' ? projectId : undefined} data-transfer-item={entry.kind === 'folder' ? item.id : undefined} data-transfer-folder={entry.kind === 'folder' ? entry.id : undefined} data-transfer-name={entry.name} draggable={!actions.running} onPointerDownCapture={event => actions.trackPress(event, entry)} onDragStart={event => actions.dragStart(event, entry)} onDragEnd={actions.dragEnd}
             onContextMenu={event => actions.openContext(event, listing, entry, entry.kind === 'folder' ? () => onEnter(entry.id, entry.name) : undefined)}>{entry.kind === 'folder' ? <SplitFolderTile name={entry.name} projectId={projectId} entryId={entry.id} folderItemId={item.id} onOpen={() => onOpen(entry.id)} onEnter={() => onEnter(entry.id, entry.name)} gesture={gesture}>{button}</SplitFolderTile> : button}{renderEntryAccessory?.(entry, listing, trail)}</div>;
         })}
         {!listing.entries.length && <p className="folder-browser-message">此目录为空</p>}

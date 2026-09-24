@@ -18,6 +18,7 @@ async function setup(page: Page) {
       if (req.method === 'project.detectTest') result = { task: null };
       if (req.method === 'folder.getThumbnail' || req.method === 'shell.getIcon') result = { dataUrl: null };
       if (req.method === 'folder.list') result = { folderId: req.params.folderId ?? 'root', name: req.params.folderId ?? '目录', parentId: null, truncated: false, entries: Array.from({ length: 40 }, (_, i) => ({ id: `${req.params.folderId ?? 'root'}-${i}`, name: `目录项${i}`, kind: i === 0 ? 'folder' : 'file' })) };
+      if (req.method === 'shell.getAppCapabilities') result = { recentSupported: true };
       if (req.method === 'shell.getRecent') result = { entries: Array.from({ length: 10 }, (_, i) => ({ id: `recent${i}`, name: `最近文件${i}`, path: `C:\\Test\\recent${i}.psd`, kind: 'file' })), note: '最近项目' };
       setTimeout(() => listeners.forEach(fn => fn({ data: { protocol: 1, type: 'response', id: req.id, ok: true, result } })), 5);
       if (req.method === 'app.getState') setTimeout(() => listeners.forEach(fn => fn({ data: { protocol: 1, type: 'event', event: 'window.visibility', data: { visible: true, visibilityId: 1 } } })), 60);

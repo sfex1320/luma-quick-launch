@@ -21,6 +21,7 @@ async function setup(page: Page) {
       if(req.method==='project.detectTest') result={task:null};
       if(req.method==='folder.getPath') result={path:req.params.entryId==='child'?'C:\\Work\\子目录':'C:\\Work\\设计.psd'};
       if(req.method==='folder.list') result={folderId:'root-token',name:'工作',parentId:null,truncated:false,entries:[{id:'child',name:'子目录',kind:'folder'},{id:'file',name:'设计.psd',kind:'file'}]};
+      if(req.method==='shell.getAppCapabilities') result={recentSupported:true};
       if(req.method==='shell.getRecent') result={entries:[{id:'recent',name:'最近.psd',path:'C:\\Design\\最近.psd',kind:'file'}],note:''};
       setTimeout(()=>respond(req,result),5);
     }};

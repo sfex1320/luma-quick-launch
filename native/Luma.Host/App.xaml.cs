@@ -50,6 +50,25 @@ public partial class App : Application, IWindowHost
     private Hardcodet.Wpf.TaskbarNotification.TaskbarIcon? _tray;
     private CoreWebView2Environment? _environment;
     private string[] _args = Array.Empty<string>();
+    private readonly HostLifecycleDiagnostics _lifecycle = new(Log.Info, Log.Error);
+
+    public App()
+    {
+        // Record before WPF/CLR apply their normal unhandled-exception policy. Never set
+        // Handled or SetObserved here: unknown failures must not resume a damaged host.
+        DispatcherUnhandledException += (_, e) => _lifecycle.RecordException("dispatcher", e.Exception, true);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            _lifecycle.RecordException("app-domain", e.ExceptionObject, e.IsTerminating);
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+            _lifecycle.RecordException("unobserved-task", e.Exception, false);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => _lifecycle.ProcessExiting(Environment.ExitCode);
+    }
+
+    internal void RequestShutdown(string reason, int exitCode = 0)
+    {
+        _lifecycle.RequestExit(reason);
+        Shutdown(exitCode);
+    }
 
     // 用于隔离原生集成测试/便携配置；默认路径与用户现有安装完全一致。
     public static string DataDirectory { get; } = Environment.GetEnvironmentVariable("LUMA_DATA_DIRECTORY") is { Length: > 0 } data
@@ -65,25 +84,25 @@ public partial class App : Application, IWindowHost
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        Log.Init(DataDirectory);
         base.OnStartup(e);
         _args = e.Args;
         // Installer/uninstaller control does not initialize WebView, state, tray or activation.
         if (_args.Contains("--shutdown"))
         {
             InstanceShutdownSignal.TryRequest(Environment.ProcessPath!);
-            Shutdown();
+            RequestShutdown("shutdown-command-completed");
             return;
         }
         if (!EnsureRuntimePrerequisites())
         {
-            Shutdown();
+            RequestShutdown("runtime-prerequisite-unavailable", 1);
             return;
         }
-        Log.Init(DataDirectory);
         _singleInstance = new Mutex(true, SingleInstanceMutexName + InstanceSuffix, out var isFirst);
         if (!isFirst)
         {
-            if (_args.Contains("--startup")) { Shutdown(); return; }
+            if (_args.Contains("--startup")) { RequestShutdown("duplicate-startup"); return; }
             Log.Info("已有 Luma 实例运行，发送激活信号后退出");
             try
             {
@@ -91,7 +110,7 @@ public partial class App : Application, IWindowHost
                 if (EventWaitHandle.TryOpenExisting(signalName, out var existing)) { existing.Set(); existing.Dispose(); }
             }
             catch { /* 已有实例退出中的竞态可忽略 */ }
-            Shutdown();
+            RequestShutdown("duplicate-activation-forwarded");
             return;
         }
 
@@ -115,7 +134,7 @@ public partial class App : Application, IWindowHost
         _backdrop = new BackdropService();
         // 便携更新：替换脚本启动后由桥接在应答发出后触发优雅退出（UpdateService 不依赖 Application.Current）。
         _router = new BridgeRouter(_store, _launcher, new FileDialogFolderPicker(), this, new DispatcherSyncContext(Dispatcher),
-            updater: new UpdateService(() => Dispatcher.BeginInvoke(() => Shutdown())));
+            updater: new UpdateService(() => Dispatcher.BeginInvoke(() => RequestShutdown("update-apply"))));
 
         _monitors.DisplaysChanged += OnDisplaysChanged;
         _store.StateChanged += state =>
@@ -213,7 +232,7 @@ public partial class App : Application, IWindowHost
         {
             Log.Error($"WebView2 环境创建失败: {ex.Message}");
             MessageBox.Show($"WebView2 运行时不可用：{ex.Message}", "Luma", MessageBoxButton.OK, MessageBoxImage.Error);
-            Shutdown();
+            RequestShutdown("webview-environment-failed", 1);
             return;
         }
 
@@ -322,7 +341,7 @@ public partial class App : Application, IWindowHost
                 if (index == 4) break;
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (index == 3) Shutdown();
+                    if (index == 3) RequestShutdown("instance-shutdown-signal");
                     else if (index == 2) OpenSearch();
                     else if (index == 1) ((IWindowHost)this).OpenSettings("projects");
                     else _edge?.TriggerFromTray("instance-signal");
@@ -504,7 +523,7 @@ public partial class App : Application, IWindowHost
         var settingsItem = new MenuItem { Header = "设置" };
         settingsItem.Click += (_, _) => ((IWindowHost)this).OpenSettings("projects");
         var exitItem = new MenuItem { Header = "退出" };
-        exitItem.Click += (_, _) => Shutdown();
+        exitItem.Click += (_, _) => RequestShutdown("tray-exit");
         var searchItem = new MenuItem { Header = "搜索 (Ctrl+Alt+Space)" };
         searchItem.Click += (_, _) => OpenSearch();
         menu.Items.Add(searchItem);
@@ -526,7 +545,29 @@ public partial class App : Application, IWindowHost
         _tray.TrayLeftMouseUp += (_, _) => _edge?.TriggerFromTray("tray-click");
     }
 
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        _lifecycle.RequestExit($"windows-session-ending:{e.ReasonSessionEnding}");
+        base.OnSessionEnding(e);
+    }
+
     protected override void OnExit(ExitEventArgs e)
+    {
+        _lifecycle.ExitStarting(e.ApplicationExitCode);
+        try
+        {
+            CleanupHost();
+            base.OnExit(e);
+            _lifecycle.ExitCompleted(e.ApplicationExitCode);
+        }
+        catch (Exception ex)
+        {
+            _lifecycle.RecordException("exit-cleanup", ex, true);
+            throw;
+        }
+    }
+
+    private void CleanupHost()
     {
         _dockCloseTimer.Stop();
         _exiting = true;
@@ -537,9 +578,9 @@ public partial class App : Application, IWindowHost
         _edge?.Dispose();
         _monitors?.Dispose();
         _tray?.Dispose();
-        try { _dock?.Close(); } catch { }
-        try { _settings?.Close(); } catch { }
-        try { _search?.Close(); } catch { }
+        try { _dock?.Close(); } catch (Exception ex) { _lifecycle.RecordException("close-dock", ex, false); }
+        try { _settings?.Close(); } catch (Exception ex) { _lifecycle.RecordException("close-settings", ex, false); }
+        try { _search?.Close(); } catch (Exception ex) { _lifecycle.RecordException("close-search", ex, false); }
         _stopListener.Set();
         _activateListener?.Join(1000);
         _activateSignal?.Dispose();
@@ -550,7 +591,6 @@ public partial class App : Application, IWindowHost
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();
         Log.Info("内核退出");
-        base.OnExit(e);
     }
 
     private static string ResolveDistDirectory()

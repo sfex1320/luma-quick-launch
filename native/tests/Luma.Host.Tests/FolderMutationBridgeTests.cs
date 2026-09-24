@@ -53,6 +53,37 @@ public class FolderMutationBridgeTests : IDisposable
     }
 
     [Fact]
+    public async Task ExternalTransferUsesAdditionalObjectsAndReturnsCommittedResult()
+    {
+        var target = await List("target");
+        await _router.HandleMessage(_client, Request("external", "folder.transfer", new { operation = "copy", targetProject = "target", targetItem = "main", targetFolderId = target.FolderId }), [Path.Combine(Root, "one.txt")]);
+        Changed(JsonDocument.Parse(_client.Sent.Last()).RootElement, 1);
+        Assert.Equal("one", File.ReadAllText(Path.Combine(Target, "one.txt")));
+        Assert.True(File.Exists(Path.Combine(Root, "one.txt")));
+    }
+
+    [Fact]
+    public async Task InternalTransferUsesSavedIdsOrCurrentEntryToken()
+    {
+        var source = await List(); var target = await List("target");
+        Changed(await Send("folder.transfer", new { operation = "copy", targetProject = "target", targetItem = "main", targetFolderId = target.FolderId, sourceProject = "p", sourceItem = "main", sourceEntryId = Id(source, "one.txt") }), 1);
+        Assert.Equal("one", File.ReadAllText(Path.Combine(Target, "one.txt")));
+        target = await List("target");
+        Changed(await Send("folder.transfer", new { operation = "copy", targetProject = "target", targetItem = "main", targetFolderId = target.FolderId, sourceProject = "p", sourceItem = "main" }), 1);
+        Assert.Equal("two", File.ReadAllText(Path.Combine(Target, "root", "two.txt")));
+    }
+
+    [Fact]
+    public async Task TransferRejectsMixedSourcesAndJsonPathsBeforeWriting()
+    {
+        var target = await List("target");
+        Error(await Send("folder.transfer", new { operation = "copy", targetProject = "target", targetItem = "main", targetFolderId = target.FolderId, path = Path.Combine(Root, "one.txt") }), "INVALID_REQUEST");
+        await _router.HandleMessage(_client, Request("mixed", "folder.transfer", new { operation = "copy", targetProject = "target", targetItem = "main", targetFolderId = target.FolderId, sourceProject = "p", sourceItem = "main" }), [Path.Combine(Root, "one.txt")]);
+        Error(JsonDocument.Parse(_client.Sent.Last()).RootElement, "INVALID_REQUEST");
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Target));
+    }
+
+    [Fact]
     public async Task GetPathReturnsOnlyValidatedAddressThroughBackgroundDispatch()
     {
         var listing = await List();

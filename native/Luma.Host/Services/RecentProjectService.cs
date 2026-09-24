@@ -248,6 +248,16 @@ public sealed class RecentProjectService
         _clock = clock ?? (() => DateTimeOffset.UtcNow); _timeout = timeout ?? TimeSpan.FromSeconds(4);
     }
 
+    public Task<bool> SupportsRecentAsync(string client, string project, string item) => Bounded(client, cancel =>
+    {
+        ValidateIds(client, project, item);
+        var saved = SavedPath(project, item);
+        var executable = _source.ResolveExecutable(saved, cancel);
+        cancel.ThrowIfCancellationRequested();
+        if (!Same(saved, SavedPath(project, item))) throw Invalid("软件入口已变更，请重新展开。");
+        return Extensions(executable).Length > 0;
+    });
+
     public Task<RecentProjectListing> GetAsync(string client, string project, string item, int limit = 6) => Bounded(client, cancel =>
     {
         ValidateIds(client, project, item);

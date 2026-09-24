@@ -136,15 +136,17 @@ test('pointer press, stack navigation and file dragging explicitly hold the dock
   await expect.poll(held).toBe(false);
 });
 
-test('file import stays interactive after mouse release until the host responds', async ({ page }) => {
+test('edit-mode reference import stays interactive after mouse release until the host responds', async ({ page }) => {
   await attachHost(page); await page.goto('/?view=dock&mode=native');
   await expect(page.locator('.dock')).toBeVisible();
+  await page.getByRole('button', { name: '整理图标', exact: true }).click();
   await page.evaluate(() => {
     (window as any).__dropDelay = 1000;
     (window as any).__resolvedDrop = [{ name: '新文件', path: 'C:\\new.txt', kind: 'file' }];
     const dataTransfer = new DataTransfer(); dataTransfer.items.add(new File(['demo'], 'new.txt'));
     document.querySelector('.dock')!.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
   });
+  await page.getByRole('button', { name: '完成整理', exact: true }).click();
   const held = () => page.evaluate(() => (window as any).__calls.filter((c: any) => c.method === 'window.sync').at(-1)?.params.interacting);
   await expect.poll(held).toBe(true);
   await expect(page.locator('.dock-drop-hint')).toHaveCount(0);

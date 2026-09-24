@@ -108,7 +108,7 @@ export function useDirectoryActions({ projectId, itemId, onOpen, onMutated, canc
       if (pressed.current?.id === entry.id && performance.now() - pressed.current.at >= 300) { event.preventDefault(); return; }
       if (activeRequest.current || form) { event.preventDefault(); return; }
       event.stopPropagation(); callbacks.current.cancelGesture(); setContext(null); setDragging(true);
-      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.effectAllowed = 'all';
       event.dataTransfer.setData(REAL_ENTRY_MIME, JSON.stringify({ projectId, itemId, entryId: entry.id, name: entry.name }));
     },
     dragEnd: () => { pressed.current = null; callbacks.current.cancelGesture(); setDragging(false); },
