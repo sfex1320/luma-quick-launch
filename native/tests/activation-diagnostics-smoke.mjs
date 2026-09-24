@@ -53,7 +53,7 @@ try {
 } catch (error) { evidence.error = String(error); throw error; }
 finally {
   if (host.exitCode === null) host.kill();
-  const output = path.join(root, 'docs/evidence/twentysecond-investigation');
+  const output = process.env.LUMA_EVIDENCE_DIRECTORY || path.join(root, 'docs/evidence/twentysecond-investigation');
   await mkdir(output, { recursive: true });
   await writeFile(path.join(output, 'activation-native.json'), JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify(evidence, null, 2));

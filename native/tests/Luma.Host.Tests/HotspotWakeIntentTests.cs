@@ -84,4 +84,21 @@ public class HotspotWakeIntentTests
     private static void Dispatch(NativeHotspotWindow hotspot, int message) =>
         typeof(NativeHotspotWindow).GetMethod("InstanceWndProc", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(hotspot, new object[] { IntPtr.Zero, message, IntPtr.Zero, IntPtr.Zero });
+
+    [Fact]
+    public void MovementWithinOneHotspotContinuesToNotifyStabilityTracker()
+    {
+        using var hotspot = new NativeHotspotWindow();
+        var enters = 0; var moves = 0;
+        hotspot.CursorEnter += (_, _) => enters++;
+        hotspot.CursorMoved += (_, _) => moves++;
+        Dispatch(hotspot, 0x0200);
+        Dispatch(hotspot, 0x0200);
+        Assert.Equal(1, enters);
+        Assert.Equal(2, moves);
+        Dispatch(hotspot, 0x02A3);
+        Dispatch(hotspot, 0x0200);
+        Assert.Equal(2, enters);
+        Assert.Equal(3, moves);
+    }
 }

@@ -29,6 +29,7 @@ internal sealed class NativeHotspotWindow : IDisposable
 
     public event EventHandler? Activated;
     public event EventHandler? CursorEnter;
+    public event EventHandler? CursorMoved;
     public event EventHandler? CursorLeave;
     public event EventHandler? FileDragEntered;
     public IntPtr Handle => _hwnd;
@@ -126,6 +127,7 @@ internal sealed class NativeHotspotWindow : IDisposable
                     Log.Info($"热区原生 WM_MOUSEMOVE enter hwnd=0x{hwnd:X} client={unchecked((short)(packed & 0xffff))},{unchecked((short)((packed >> 16) & 0xffff))} {ActivationDiagnostics.Capture(hwnd)}");
                     CursorEnter?.Invoke(this, EventArgs.Empty);
                 }
+                CursorMoved?.Invoke(this, EventArgs.Empty);
                 break;
             case Win32.WM_MOUSELEAVE:
                 _trackingLeave = false;

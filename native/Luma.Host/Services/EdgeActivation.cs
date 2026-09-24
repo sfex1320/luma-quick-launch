@@ -19,6 +19,7 @@ public sealed class EdgeActivation : IDisposable
     private readonly Func<bool> _keepOpen;
     private readonly Func<int, int, bool> _dockContainsPoint;
     private readonly HoverReentryGate _hoverReentry = new();
+    private readonly HoverDwellIntent _hoverDwell = new();
     private HotspotLayout? _active, _hover;
     private IntPtr _fullscreenMonitor;
     private int _collapseMisses;
@@ -51,8 +52,11 @@ public sealed class EdgeActivation : IDisposable
             var pressed = HasPressedInput();
             var allowed = _hoverReentry.AllowsDwellAt(new Rect(hover.X, hover.Y, hover.Width, hover.Height),
                 available, point.X, point.Y, hit == current.Window.Handle, pressed);
-            Log.Info($"驻留判定 allowed={allowed} sampledAvailable={available} sampledCursor={point.X},{point.Y} sampledHit=0x{hit:X} pressed={pressed} expectedRect={hover.X},{hover.Y},{hover.Width},{hover.Height} {ActivationDiagnostics.Capture(current.Window.Handle)}");
-            if (allowed) RequestShow(hover, "hover-dwell");
+            var stable = allowed && _hoverDwell.IsReadyAt(point.X, point.Y, Environment.TickCount64);
+            Log.Info($"驻留判定 allowed={allowed && stable} spatialAllowed={allowed} stable={stable} sampledAvailable={available} sampledCursor={point.X},{point.Y} sampledHit=0x{hit:X} pressed={pressed} expectedRect={hover.X},{hover.Y},{hover.Width},{hover.Height} {ActivationDiagnostics.Capture(current.Window.Handle)}");
+            if (stable) RequestShow(hover, "hover-dwell");
+            else if (allowed) { _hover = hover; _dwellTimer.Start(); }
+            else _hoverDwell.Reset();
         };
         _collapseTimer = new DispatcherTimer { Interval = CollapseCheckInterval };
         _collapseTimer.Tick += (_, _) => CheckCollapse();
@@ -61,7 +65,7 @@ public sealed class EdgeActivation : IDisposable
         _fullscreenTimer.Start();
     }
     public void Start() => RelocateHotspot();
-    public void SetPaused(bool paused) { Paused = paused; _dwellTimer.Stop(); UpdateHotspotVisibility(); }
+    public void SetPaused(bool paused) { Paused = paused; _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset(); UpdateHotspotVisibility(); }
     public void TriggerFromTray(string reason = "explicit")
     {
         var layouts = _layoutProvider();
@@ -90,7 +94,7 @@ public sealed class EdgeActivation : IDisposable
     public void NotifyDockHidden() { DockVisible = false; _closing = false; _collapseTimer.Stop(); _collapseMisses = 0; }
     public void SuppressHoverAfterFrontendCollapse()
     {
-        _dwellTimer.Stop(); _hover = null;
+        _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset();
         if (!Win32.GetCursorPos(out var point)) return;
         _hoverReentry.SuppressAt(point.X, point.Y, _hotspots.Values.Select(p =>
             new Rect(p.Layout.X, p.Layout.Y, p.Layout.Width, p.Layout.Height)));
@@ -104,6 +108,25 @@ public sealed class EdgeActivation : IDisposable
         if (blocked && allowed) Log.Info($"鼠标已真实离开收起热区，恢复悬停唤出 cursor={point.X},{point.Y}");
         return allowed;
     }
+    private void BeginHover(HotspotLayout layout)
+    {
+        _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset();
+        if (!Win32.GetCursorPos(out var point) || !Within(layout, point)) return;
+        _hoverDwell.Observe(point.X, point.Y, Environment.TickCount64);
+        _hover = layout; _dwellTimer.Start();
+    }
+    private void ContinueHover(IntPtr monitor)
+    {
+        if (Paused || (_fullscreenMonitor != IntPtr.Zero && monitor == _fullscreenMonitor)) return;
+        if (_hover is not { } hover || hover.Monitor != monitor) return;
+        if (!Win32.GetCursorPos(out var point) || !Within(hover, point))
+        { _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset(); return; }
+        if (_hoverDwell.Observe(point.X, point.Y, Environment.TickCount64))
+        { _dwellTimer.Stop(); _dwellTimer.Start(); }
+    }
+    private static bool Within(HotspotLayout layout, Win32.POINT point) =>
+        point.X >= layout.X && point.X < (long)layout.X + layout.Width &&
+        point.Y >= layout.Y && point.Y < (long)layout.Y + layout.Height;
     public void CancelClose(string reason = "interaction")
     {
         if (_closing && _active is { } layout) RequestShow(layout, $"reverse:{reason}");
@@ -180,7 +203,7 @@ public sealed class EdgeActivation : IDisposable
     public void RelocateHotspot()
     {
         Log.Info($"热区重排 begin hovered={_hover?.Monitor} dwell={_dwellTimer.IsEnabled}");
-        _dwellTimer.Stop(); _hover = null;
+        _dwellTimer.Stop(); _hover = null; _hoverDwell.Reset();
         var layouts = _layoutProvider();
         foreach (var key in _hotspots.Keys.Where(k => !layouts.Any(l => l.Monitor == k)).ToArray())
         { _hotspots[key].Window.Dispose(); _hotspots.Remove(key); }
@@ -209,14 +232,15 @@ public sealed class EdgeActivation : IDisposable
                     Log.Info($"热区进入 monitor=0x{key:X} paused={Paused} fullscreen=0x{_fullscreenMonitor:X}");
                     if (Paused || (_fullscreenMonitor != IntPtr.Zero && key == _fullscreenMonitor) || !_hotspots.TryGetValue(key, out var current)) return;
                     if (!AllowsHoverAtCursor()) { Log.Info("忽略主动收起后的原地热区进入"); return; }
-                    _hover = current.Layout; _dwellTimer.Stop(); _dwellTimer.Start();
+                    BeginHover(current.Layout);
                 };
+                window.CursorMoved += (_, _) => ContinueHover(key);
                 window.CursorLeave += (_, _) =>
                 {
                     Log.Info($"热区离开 monitor=0x{key:X}");
                     // Hide/show can synthesize WM_MOUSELEAVE. Only a physical exit rearms hover.
                     AllowsHoverAtCursor();
-                    if (_hover?.Monitor == key) { _hover = null; _dwellTimer.Stop(); }
+                    if (_hover?.Monitor == key) { _hover = null; _dwellTimer.Stop(); _hoverDwell.Reset(); }
                 };
                 window.Create(layout.X, layout.Y, layout.Width, layout.Height);
                 pair = (window, layout);
@@ -234,7 +258,7 @@ public sealed class EdgeActivation : IDisposable
             Log.Info($"热区重排完成 cursor={point.X},{point.Y} hit=0x{hit:X} hotspot={hovered.Layout?.Monitor}");
             if (hovered.Layout is { } layout && (_fullscreenMonitor == IntPtr.Zero || layout.Monitor != _fullscreenMonitor) && AllowsHoverAtCursor())
             {
-                _hover = layout; _dwellTimer.Start();
+                BeginHover(layout);
                 Log.Info($"热区重排后恢复驻留 monitor=0x{layout.Monitor:X}");
             }
         }
