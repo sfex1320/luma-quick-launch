@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Luma.Host.Services;
 
 namespace Luma.Host.Interop;
 
@@ -103,7 +104,7 @@ internal sealed class NativeHotspotWindow : IDisposable
                 var clickedHere = _leftPressStartedHere;
                 _leftPressStartedHere = false;
                 if (!clickedHere) break;
-                Log.Info($"热区原生单击 hwnd=0x{hwnd:X}");
+                Log.Info($"热区原生单击 hwnd=0x{hwnd:X} {ActivationDiagnostics.Capture(hwnd)}");
                 Activated?.Invoke(this, EventArgs.Empty);
                 break;
             case 0x001F: // WM_CANCELMODE.
@@ -121,7 +122,8 @@ internal sealed class NativeHotspotWindow : IDisposable
                     };
                     Win32.TrackMouseEvent(ref track);
                     _trackingLeave = true;
-                    Log.Info($"热区原生 WM_MOUSEMOVE enter hwnd=0x{hwnd:X}");
+                    var packed = lParam.ToInt64();
+                    Log.Info($"热区原生 WM_MOUSEMOVE enter hwnd=0x{hwnd:X} client={unchecked((short)(packed & 0xffff))},{unchecked((short)((packed >> 16) & 0xffff))} {ActivationDiagnostics.Capture(hwnd)}");
                     CursorEnter?.Invoke(this, EventArgs.Empty);
                 }
                 break;

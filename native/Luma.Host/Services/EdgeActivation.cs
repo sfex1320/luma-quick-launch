@@ -47,9 +47,12 @@ public sealed class EdgeActivation : IDisposable
             Log.Info($"热区驻留到期 hover={hover?.Monitor} visible={DockVisible}");
             if (hover is null || Paused || !_hotspots.TryGetValue(hover.Monitor, out var current) || current.Layout != hover) return;
             var available = Win32.GetCursorPos(out var point);
-            if (_hoverReentry.AllowsDwellAt(new Rect(hover.X, hover.Y, hover.Width, hover.Height),
-                    available, point.X, point.Y, available && Win32.WindowFromPoint(point) == current.Window.Handle, HasPressedInput()))
-                RequestShow(hover);
+            var hit = available ? Win32.WindowFromPoint(point) : IntPtr.Zero;
+            var pressed = HasPressedInput();
+            var allowed = _hoverReentry.AllowsDwellAt(new Rect(hover.X, hover.Y, hover.Width, hover.Height),
+                available, point.X, point.Y, hit == current.Window.Handle, pressed);
+            Log.Info($"驻留判定 allowed={allowed} sampledAvailable={available} sampledCursor={point.X},{point.Y} sampledHit=0x{hit:X} pressed={pressed} expectedRect={hover.X},{hover.Y},{hover.Width},{hover.Height} {ActivationDiagnostics.Capture(current.Window.Handle)}");
+            if (allowed) RequestShow(hover, "hover-dwell");
         };
         _collapseTimer = new DispatcherTimer { Interval = CollapseCheckInterval };
         _collapseTimer.Tick += (_, _) => CheckCollapse();
@@ -59,17 +62,18 @@ public sealed class EdgeActivation : IDisposable
     }
     public void Start() => RelocateHotspot();
     public void SetPaused(bool paused) { Paused = paused; _dwellTimer.Stop(); UpdateHotspotVisibility(); }
-    public void TriggerFromTray()
+    public void TriggerFromTray(string reason = "explicit")
     {
         var layouts = _layoutProvider();
         if (layouts.Count == 0) return;
         Win32.GetCursorPos(out var point);
         _graceUntil = Environment.TickCount64 + 3000;
-        RequestShow(layouts.FirstOrDefault(x => x.WorkArea.Contains(point.X, point.Y)) ?? layouts[0]);
+        RequestShow(layouts.FirstOrDefault(x => x.WorkArea.Contains(point.X, point.Y)) ?? layouts[0], reason);
     }
-    private void RequestShow(HotspotLayout layout)
+    private void RequestShow(HotspotLayout layout, string reason)
     {
         Log.Info($"浮岛唤出请求 monitor=0x{layout.Monitor:X} visible={DockVisible} active={_active?.Monitor}");
+        Log.Info($"唤出来源 reason={reason} closing={_closing} {ActivationDiagnostics.Capture(_hotspots.TryGetValue(layout.Monitor, out var hotspot) ? hotspot.Window.Handle : IntPtr.Zero)}");
         CheckFullscreen(logTarget: true);
         if (_fullscreenMonitor != IntPtr.Zero && layout.Monitor == _fullscreenMonitor) { Log.Info("浮岛唤出被对应屏全屏应用抑制"); return; }
         if (DockVisible)
@@ -100,9 +104,9 @@ public sealed class EdgeActivation : IDisposable
         if (blocked && allowed) Log.Info($"鼠标已真实离开收起热区，恢复悬停唤出 cursor={point.X},{point.Y}");
         return allowed;
     }
-    public void CancelClose()
+    public void CancelClose(string reason = "interaction")
     {
-        if (_closing && _active is { } layout) RequestShow(layout);
+        if (_closing && _active is { } layout) RequestShow(layout, $"reverse:{reason}");
     }
     private void RequestHide()
     {
@@ -124,17 +128,17 @@ public sealed class EdgeActivation : IDisposable
     private void CheckCollapse()
     {
         if (!AutoCollapseEnabled || InputKeepsDockOpen(_closing, _keepOpen(), HasPressedInput()) || Environment.TickCount64 < _graceUntil)
-        { _collapseMisses = 0; CancelClose(); return; }
+        { _collapseMisses = 0; CancelClose("keep-open"); return; }
         if (!Win32.GetCursorPos(out var point)) return;
         if (_dockContainsPoint(point.X, point.Y) || _hotspots.Values.Any(x =>
                 new Rect(x.Layout.X, x.Layout.Y, x.Layout.Width, x.Layout.Height).Contains(point.X, point.Y)))
-        { _collapseMisses = 0; CancelClose(); return; }
+        { _collapseMisses = 0; CancelClose("physical-region"); return; }
         var hit = Win32.WindowFromPoint(point);
         var dock = _dockHandle();
         var cursor = hit;
         for (var i = 0; cursor != IntPtr.Zero && i < 16; i++, cursor = Win32.GetParent(cursor))
-            if (cursor == dock) { _collapseMisses = 0; CancelClose(); return; }
-        if (_hotspots.Values.Any(x => x.Window.Handle == hit)) { _collapseMisses = 0; CancelClose(); return; }
+            if (cursor == dock) { _collapseMisses = 0; CancelClose("window-hit"); return; }
+        if (_hotspots.Values.Any(x => x.Window.Handle == hit)) { _collapseMisses = 0; CancelClose("hotspot-hit"); return; }
         if (++_collapseMisses < CollapseMissThreshold) return;
         RequestHide();
     }
@@ -191,14 +195,14 @@ public sealed class EdgeActivation : IDisposable
                     if (Paused || !_hotspots.TryGetValue(key, out var current)) return;
                     _dwellTimer.Stop();
                     Log.Info($"热区单击立即唤出 monitor=0x{key:X}");
-                    RequestShow(current.Layout); // Re-checks fullscreen for this monitor.
+                    RequestShow(current.Layout, "hotspot-click"); // Re-checks fullscreen for this monitor.
                 };
                 window.FileDragEntered += (_, _) =>
                 {
                     if (Paused || !_hotspots.TryGetValue(key, out var current)) return;
                     _dwellTimer.Stop();
                     Log.Info($"热区 OLE 文件拖入 monitor=0x{key:X}");
-                    RequestShow(current.Layout);
+                    RequestShow(current.Layout, "ole-drag");
                 };
                 window.CursorEnter += (_, _) =>
                 {

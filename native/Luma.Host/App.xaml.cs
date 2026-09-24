@@ -229,7 +229,7 @@ public partial class App : Application, IWindowHost
         };
         _dock.LayoutReady += () =>
         {
-            if (_pendingDockShow || _args.Contains("--show-dock")) { _pendingDockShow = false; _edge?.TriggerFromTray(); }
+            if (_pendingDockShow || _args.Contains("--show-dock")) { _pendingDockShow = false; _edge?.TriggerFromTray("layout-ready"); }
         };
         _dock.SetRadiusProvider(() => _store!.Current.Preferences.Radius);
         _dock.PixelScaleChanged += () => _edge?.RelocateHotspot();
@@ -325,7 +325,7 @@ public partial class App : Application, IWindowHost
                     if (index == 3) Shutdown();
                     else if (index == 2) OpenSearch();
                     else if (index == 1) ((IWindowHost)this).OpenSettings("projects");
-                    else _edge?.TriggerFromTray();
+                    else _edge?.TriggerFromTray("instance-signal");
                 });
             }
             catch (ObjectDisposedException) { break; }
@@ -349,7 +349,7 @@ public partial class App : Application, IWindowHost
             var primary = _monitors!.Primary;
             _dock?.RelocatePhysical(primary.PhysicalWorkArea, primary.DpiScale);
             _edge?.RelocateHotspot();
-            if (wasVisible) _edge?.TriggerFromTray();
+            if (wasVisible) _edge?.TriggerFromTray("display-change-restore");
         });
     }
 
@@ -406,7 +406,7 @@ public partial class App : Application, IWindowHost
             existing.NavigateToSection(section);
             return;
         }
-        _settings = new SettingsWindow(_router!, _environment, _store!, section, () => _edge?.TriggerFromTray());
+        _settings = new SettingsWindow(_router!, _environment, _store!, section, () => _edge?.TriggerFromTray("settings-preview"));
         _settings.Deactivated += (_, _) => _shortcuts?.Detach("settings");
         _settings.Closed += (_, _) => _settings = null;
         _settings.Show();
@@ -414,7 +414,7 @@ public partial class App : Application, IWindowHost
         Log.Info($"打开管理窗 section={section}");
     }
 
-    void IWindowHost.ShowDock() => _edge?.TriggerFromTray();
+    void IWindowHost.ShowDock() => _edge?.TriggerFromTray("bridge-show");
 
     bool IWindowHost.IsShortcutClientFocused(string clientId) => clientId switch
     {
@@ -477,7 +477,7 @@ public partial class App : Application, IWindowHost
         {
             case "search": OpenSearch(); break;
             case "settings": ((IWindowHost)this).OpenSettings("projects"); break;
-            case "dock": _edge?.TriggerFromTray(); break;
+            case "dock": _edge?.TriggerFromTray("shortcut-dock"); break;
             case "project":
             case "edit":
                 _shortcutActivation.Request(binding, serial, Environment.TickCount64);
@@ -488,7 +488,7 @@ public partial class App : Application, IWindowHost
                     _dockVisibility.RequestShow();
                     _router!.BroadcastVisibility(true, _dockVisibility.VisibilityId);
                 }
-                else _edge?.TriggerFromTray();
+                else _edge?.TriggerFromTray("shortcut-project-edit");
                 if (_dockVisibility.Phase == DockVisibilityPhase.Hidden && !_pendingDockShow) _shortcutActivation.Clear();
                 break;
         }
@@ -498,7 +498,7 @@ public partial class App : Application, IWindowHost
     {
         var menu = new ContextMenu();
         var showItem = new MenuItem { Header = "显示 Luma" };
-        showItem.Click += (_, _) => _edge?.TriggerFromTray();
+        showItem.Click += (_, _) => _edge?.TriggerFromTray("tray-menu");
         var pauseItem = new MenuItem { Header = "暂停边缘唤出", IsCheckable = true };
         pauseItem.Click += (_, _) => _edge?.SetPaused(pauseItem.IsChecked);
         var settingsItem = new MenuItem { Header = "设置" };
@@ -523,7 +523,7 @@ public partial class App : Application, IWindowHost
             IconSource = System.Windows.Media.Imaging.BitmapFrame.Create(
                 new Uri("pack://application:,,,/Assets/luma.ico")),
         };
-        _tray.TrayLeftMouseUp += (_, _) => _edge?.TriggerFromTray();
+        _tray.TrayLeftMouseUp += (_, _) => _edge?.TriggerFromTray("tray-click");
     }
 
     protected override void OnExit(ExitEventArgs e)
