@@ -26,7 +26,11 @@ if (-not [LumaDeliveryDesktop]::GetWindowRect($window,[ref]$rect) -or -not [Luma
 $fullscreen=$rect.Left -le $monitor.Monitor.Left -and $rect.Top -le $monitor.Monitor.Top -and $rect.Right -ge $monitor.Monitor.Right -and $rect.Bottom -ge $monitor.Monitor.Bottom
 $inputState=[LumaDeliveryDesktop+Input]::new();$inputState.Size=[Runtime.InteropServices.Marshal]::SizeOf($inputState)
 if (-not [LumaDeliveryDesktop]::GetLastInputInfo([ref]$inputState)) { throw 'Cannot verify user input state.' }
-$idleMs=([long][Environment]::TickCount64 - [long]$inputState.Time) -band 0xffffffffL
+# Windows PowerShell 5.1/.NET Framework has no Environment.TickCount64 property.
+# LASTINPUTINFO is 32-bit; use TickCount with unsigned wrap arithmetic in both shells.
+$idleMs=([long][Environment]::TickCount - [long]$inputState.Time) -band 0xffffffffL
+# Injected input can carry a future timestamp. Unknown freshness must fail closed.
+if ($idleMs -gt 0x7fffffffL) { $idleMs=0 }
 $result=[ordered]@{atUtc=[DateTime]::UtcNow.ToString('o');foreground=$foreground.ProcessName;foregroundPid=$foregroundPid;fullscreen=$fullscreen;idleSeconds=[math]::Round($idleMs/1000,1)}
 $result | ConvertTo-Json -Compress
 if ($fullscreen -and $foreground.ProcessName -notin @('explorer')) { throw 'Fullscreen foreground: delivery GUI checks must wait.' }

@@ -37,15 +37,18 @@ try {
     let delta = '';
     for (let i = 0; i < 20; i++) {
       await wait(100); delta = (await readLog()).slice(before);
-      if (delta.includes('驻留判定')) break;
+      if (delta.includes('驻留判定') || delta.includes('热区离开')) break;
     }
     assert.match(delta, /WM_MOUSEMOVE enter.*client=2,2.*inputSource=/);
-    assert.match(delta, /驻留判定 allowed=False.*sampledCursor=.*expectedRect=.*physical=.*inputAgeMs=.*actualRect=/);
+    // Windows can deliver a real leave immediately, cancelling the timer before expiry.
+    assert(delta.includes('热区离开') || /驻留判定 allowed=False.*sampledCursor=.*expectedRect=.*physical=.*inputAgeMs=.*actualRect=/.test(delta));
+    await wait(300);
+    delta = (await readLog()).slice(before);
     assert(!delta.includes('浮岛唤出请求'), 'A move message outside the physical hotspot cannot reveal');
     assert(!inspect().some(w => w.Title === 'Luma Dock' && w.Visible && w.RegionType !== 1));
   }
   evidence.checks.push(`Synthetic enter rejected on ${hotspots.length} real hotspot HWNDs with physical pointer outside; no reveal`);
-  evidence.checks.push('Entry and dwell record actual coordinates, bounds, input origin, idle age and decision');
+  evidence.checks.push('Entry records actual coordinates, bounds, input origin and idle age; cancellation or rejection is observable');
   evidence.log = await readLog(); evidence.result = 'passed';
 } catch (error) { evidence.error = String(error); throw error; }
 finally {
