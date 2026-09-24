@@ -44,9 +44,14 @@ try {
     });
     const input=document.createElement('input');input.type='file';input.id='transfer-fixture';document.body.append(input);
   });
+  const cdp=await page.context().newCDPSession(page);
+  const document=await cdp.send('DOM.getDocument');
+  const {nodeId}=await cdp.send('DOM.querySelector',{nodeId:document.root.nodeId,selector:'#transfer-fixture'});
   for(const operation of ['copy','move','link']) {
     const file=path.join(source,`${operation}.txt`);
-    await page.locator('#transfer-fixture').setInputFiles(file);
+    // CDP points at actual on-disk files; Playwright's remote setInputFiles can
+    // substitute memory-backed File objects, which WebView rightly rejects.
+    await cdp.send('DOM.setFileInputFiles',{nodeId,files:[file]});
     const result=await page.evaluate(async operation=>{
       const listing=await window.__rpc('folder.list',{projectId:'p',itemId:'target'});
       return window.__rpc('folder.transfer',{operation,targetProject:'p',targetItem:'target',targetFolderId:listing.folderId},Array.from(document.querySelector('#transfer-fixture').files));
